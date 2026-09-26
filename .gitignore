@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 scratch/
 input_human/
+detector-options.json
 reports/*.json
 reports/history/
 !reports/.gitkeep

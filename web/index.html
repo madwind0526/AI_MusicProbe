@@ -70,6 +70,14 @@
     </section>
     <section class="page page-scroll" data-page-panel="detectors" hidden>
       <div class="page-heading"><span class="eyebrow">DETECTORS</span><h1>탐지 모델</h1><p>서로 다른 음향 흔적을 보는 모델을 함께 사용합니다. 한 모델의 포화값만으로 결론을 내리지 않습니다.</p></div>
+      <section class="panel ensemble-panel">
+        <div class="ensemble-row">
+          <label for="ensemble-method"><span>Total 결합 방식</span><small>Total에 반영되는 탐지기 원점수를 합치는 방법입니다. 바로 아래 각 탐지기의 설정 아이콘에서 Total 반영 여부를 정합니다.</small></label>
+          <select id="ensemble-method"></select>
+        </div>
+        <p class="ensemble-hint" id="ensemble-hint"></p>
+        <div class="weight-row" id="ensemble-weights" hidden></div>
+      </section>
       <div class="model-grid" id="detector-grid"></div>
     </section>
     <section class="page page-scroll" data-page-panel="reports" hidden>
@@ -111,6 +119,19 @@
     <footer class="browser-footer">
       <p id="browser-selection">선택된 파일이 없습니다.</p>
       <div><button type="button" class="soft-button" id="browser-cancel">취소</button><button type="button" class="browser-confirm" id="browser-confirm">선택 완료</button></div>
+    </footer>
+  </section>
+</div>
+<div class="browser-backdrop" id="detector-options-dialog" hidden>
+  <section class="browser-dialog detector-options-dialog" role="dialog" aria-modal="true" aria-labelledby="detector-options-title">
+    <header class="browser-header">
+      <div><span class="eyebrow">DETECTOR OPTIONS</span><h2 id="detector-options-title">탐지기 설정</h2><p id="detector-options-subtitle"></p></div>
+      <button type="button" class="browser-close" id="detector-options-close" aria-label="탐지기 설정 닫기">×</button>
+    </header>
+    <div class="detector-options-body" id="detector-options-body"></div>
+    <footer class="browser-footer">
+      <p id="detector-options-note">저장하면 다음 분석부터 적용됩니다.</p>
+      <div><button type="button" class="soft-button" id="detector-options-cancel">취소</button><button type="button" class="browser-confirm" id="detector-options-save">저장</button></div>
     </footer>
   </section>
 </div>

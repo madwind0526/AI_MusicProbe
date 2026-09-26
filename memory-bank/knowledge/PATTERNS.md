@@ -98,3 +98,13 @@ Score bands can be represented with CSS classes and a `--score-color` variable s
 - 520px 이하에서만 한 열 `minmax(0, 320px)`로 바꾸고 카드에 `width: 100%; height: auto; aspect-ratio: 1/1`을 적용한다.
 
 카드 크기는 `historyCardSize`, 크기 방식은 `variableHistoryCards`로 저장한다. 고정 모드에서는 같은 CSS 변수를 열·행·카드 폭·높이에 적용하고, 가변 모드에서는 입력값을 최소 열 너비로 사용한 뒤 `ResizeObserver`가 각 카드 높이를 실제 너비와 맞춘다.
+
+## Per-detector analysis options served by one schema (2026-09-27)
+
+- `probe/detector_options.py` is the single source of truth. It exposes `describe()` for the UI and `normalize()` for writes, so the WebUI never hardcodes an option list and cannot drift from the server.
+- A detector entry carries `locked` (model-coupled values, e.g. 16 kHz / 5s, 8192 FFT, 1-8 kHz) separate from `options` (user-tunable). Splitting them lets the popup show what cannot change instead of hiding it, which stops users from "fixing" values that are bound to the checkpoint.
+- Each option carries `effect`: `score`, `verdict`, or `total`. Rendering a badge from `effect` is cheaper and less error-prone than hand-labelling every field in the UI.
+- `includedInTotal` is modelled as a first-class option with `effect: total` rather than a special-cased boolean, so the popup renders it through the same `optionRow()` path as everything else.
+- Adapters read live values through `detector_options.for_detector(name)` instead of taking arguments, so adding a knob never changes a detector signature or a caller.
+- `analyze_file` snapshots `current()` into the result as `detectorSettings` and `scoreInfo.components` records `method`, `inputs`, `included`, `excluded`, `weights`, `agreement`. Without the snapshot, a score cannot be explained after the fact.
+- Keep detector option values in their own `detector-options.json` rather than the general `settings.json`: the general file holds UI preferences, this one holds analysis semantics, and they change for different reasons.

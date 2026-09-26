@@ -1,6 +1,7 @@
+import math
 from pathlib import Path
 
-from probe.file_analysis import _score, expand_inputs
+from probe.file_analysis import _combine, _score, expand_inputs
 
 
 def test_expand_inputs_returns_supported_files_once(tmp_path: Path) -> None:
@@ -40,3 +41,86 @@ def test_score_stays_high_when_detectors_agree() -> None:
     assert total is not None
     assert total > 90
     assert confidence > 70
+
+
+def test_evaluation_only_detector_is_scored_but_not_combined() -> None:
+    total, _confidence, _conclusion, detail = _score(
+        [
+            {"name": "sonics", "score": 0.9, "includedInTotal": True},
+            {"name": "lofcz", "score": 0.8, "includedInTotal": True},
+            {"name": "artifactnet", "score": 0.0022, "includedInTotal": False},
+        ]
+    )
+
+    assert detail["included"] == ["sonics", "lofcz"]
+    assert detail["excluded"] == ["artifactnet"]
+    assert detail["inputs"]["artifactnet"] == 0.0022
+    # The excluded near-zero score no longer drags the total down.
+    assert total is not None and total > 80
+
+
+def test_evaluation_only_total_reports_why_it_failed() -> None:
+    total, _confidence, conclusion, _detail = _score(
+        [{"name": "artifactnet", "score": 0.0022, "includedInTotal": False}]
+    )
+
+    assert total is None
+    assert "평가만" in conclusion
+
+
+def test_arithmetic_mean_lets_a_strong_detector_carry_a_weak_one() -> None:
+    results = [
+        {"name": "sonics", "score": 0.9, "includedInTotal": True},
+        {"name": "lofcz", "score": 0.0, "includedInTotal": True},
+    ]
+
+    geometric, _c, _t, _d = _score(results, {"method": "geometric", "weights": {}})
+    arithmetic, _c2, _t2, detail = _score(results, {"method": "arithmetic", "weights": {}})
+
+    assert detail["method"] == "detector-arithmetic-mean-v1"
+    assert arithmetic is not None and geometric is not None
+    assert arithmetic > geometric + 30
+
+
+def test_weighted_geometric_uses_only_the_relative_weights() -> None:
+    results = [
+        {"name": "sonics", "score": 0.9, "includedInTotal": True},
+        {"name": "lofcz", "score": 0.5, "includedInTotal": True},
+    ]
+
+    single, _c, _t, detail = _score(results, {"method": "weightedGeometric", "weights": {"sonics": 0, "lofcz": 1}})
+
+    assert detail["weights"] == {"sonics": 0.0, "lofcz": 1.0}
+    assert single == 50.0
+
+
+def test_all_zero_weights_fall_back_to_the_plain_mean() -> None:
+    values = [0.2, 0.6]
+
+    assert _combine(values, ["a", "b"], "weightedGeometric", {"a": 0, "b": 0}) == 0.4
+
+
+def test_median_combination_ignores_a_single_outlier() -> None:
+    results = [
+        {"name": "sonics", "score": 0.8, "includedInTotal": True},
+        {"name": "lofcz", "score": 0.8, "includedInTotal": True},
+        {"name": "artifactnet", "score": 0.01, "includedInTotal": True},
+    ]
+
+    median, _c, _t, detail = _score(results, {"method": "median", "weights": {}})
+
+    assert detail["method"] == "detector-median-v1"
+    assert median == 80.0
+
+
+def test_non_finite_detector_score_is_ignored() -> None:
+    total, _confidence, _conclusion, detail = _score(
+        [
+            {"name": "sonics", "score": 0.8, "includedInTotal": True},
+            {"name": "lofcz", "score": math.nan, "includedInTotal": True},
+        ]
+    )
+
+    # A NaN used to clip to 1.0 and look like a saturated detector.
+    assert detail["inputs"] == {"sonics": 0.8}
+    assert total == 80.0

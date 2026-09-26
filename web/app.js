@@ -1,7 +1,7 @@
 const AUDIO_EXTENSIONS = /\.(wav|flac|mp3|m4a|aac|ogg|opus|aiff|aif)$/i;
 const PAGE_META = { analyze: ['음원 분석', 'Analyze'], detectors: ['탐지기', 'Detectors'], reports: ['리포트', 'Reports'], settings: ['설정', 'Settings'] };
 const DEFAULT_SETTINGS = { scoreBands: { thresholds: [20, 50, 80, 90], colors: ['#ffffff', '#8ec5ff', '#ffe07a', '#ffad66', '#ff78c8'] }, historyLimit: 0, recursiveFolders: true, historyCardSize: 250, variableHistoryCards: true, paths: { music: '', reports: '', models: '' }, waveformPeaks: 180 };
-const state = { files: [], localPaths: [], detectors: [], history: [], historySort: 'newest', historyFilter: 'all', settings: structuredClone(DEFAULT_SETTINGS), browser: { mode: 'files', listing: null, selectedFiles: new Set(), selectedFolder: null, settingsTarget: null } };
+const state = { files: [], localPaths: [], detectors: [], detectorOptions: null, history: [], historySort: 'newest', historyFilter: 'all', settings: structuredClone(DEFAULT_SETTINGS), browser: { mode: 'files', listing: null, selectedFiles: new Set(), selectedFolder: null, settingsTarget: null } };
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(value) {
@@ -82,7 +82,7 @@ async function openBrowser(mode, settingsTarget = null, startPath = '') {
 function closeDialog(id) {
   if (id === 'result-dialog') $('detail-audio')?.pause();
   $(id).hidden = true;
-  if ($('browser-dialog').hidden && $('result-dialog').hidden) document.body.classList.remove('dialog-open');
+  if (['browser-dialog', 'result-dialog', 'detector-options-dialog'].every((key) => $(key).hidden)) document.body.classList.remove('dialog-open');
 }
 
 function renderBrowser() {
@@ -198,7 +198,14 @@ function openResult(result) {
     const score = Number(result.totalScore || 0);
     const query = new URLSearchParams({ path: result.file || '' }).toString();
     const metrics = metricEntries(result.parameters).map(([label, value]) => `<div class="metric-box"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
-    const detectors = (result.detectors || []).map((item) => `<div class="detector-row"><span>${escapeHtml(item.label || item.name)}${item.includedInTotal === false ? ' · 평가만' : ''}</span><strong>${Math.round(Number(item.score || 0) * 100)}</strong></div>`).join('');
+    const detectors = (result.detectors || []).map((item) => {
+      const tags = [];
+      if (item.includedInTotal === false) tags.push('평가만');
+      if (item.verdict) tags.push(item.verdict);
+      if (item.aggregation) tags.push(item.aggregation);
+      const optionText = Object.entries(item.options || {}).map(([key, value]) => `${(item.optionLabels || {})[key] || key} ${value}`).join(' · ');
+      return `<div class="detector-row"><span>${escapeHtml(item.label || item.name)}${tags.length ? ` · ${escapeHtml(tags.join(' · '))}` : ''}<small class="detector-row-options">${escapeHtml(optionText)}</small></span><strong>${Math.round(Number(item.score || 0) * 100)}</strong></div>`;
+    }).join('');
     panel.innerHTML = `<div class="result-overview"><div class="score-ring ${scoreBand(score)}" style="--score:${score}"><span>${score.toFixed(1)}</span><small>TOTAL</small></div><div><h3>최종 분석 점수</h3><p>${escapeHtml(compactConclusion(result))}</p><small>신뢰 지표 ${Number(result.confidence || 0).toFixed(1)} · 확률값이 아닌 잠정 종합 점수</small></div></div>
       <section class="source-information"><h3>원본 파일 정보</h3><p title="${escapeHtml(result.file)}">${escapeHtml(result.file)}</p></section>
       <section class="audio-visuals"><div class="audio-chart waveform-chart compare-waveform" id="waveform-chart"><svg id="detail-waveform-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="전체 음원 파형, 재생 위치 0%"><line class="waveform-loading" x1="0" x2="1000" y1="50" y2="50" /></svg></div><div class="compare-spectrogram"><div class="compare-frequency-axis"><span>22.1 kHz</span><span>16.5 kHz</span><span>11.0 kHz</span><span>5.5 kHz</span><span>0 Hz</span></div><div class="compare-spectrogram-body"><div class="audio-chart spectrogram-chart compare-spectrogram-plot"><img class="visual-base" src="/api/audio/spectrogram?${query}" alt="음원 스펙트로그램" loading="lazy"><div class="visual-played" id="spectrogram-played"><img src="/api/audio/spectrogram?${query}" alt="" loading="lazy"></div><div class="visual-playhead" id="spectrogram-playhead"></div></div><div class="compare-time-axis" id="compare-time-axis"><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span></div></div><div class="compare-db-axis"><span>0</span><i></i><span>-100</span><small>dBFS</small></div></div><audio id="detail-audio" preload="metadata" src="/api/media?${query}"></audio><div class="audio-seek"><span id="audio-current">0:00</span><input id="audio-seek-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="오디오 재생 위치"><span id="audio-duration">0:00</span></div><div class="audio-controls"><button type="button" data-audio-action="back" title="10초 뒤로" aria-label="10초 뒤로">&lt;&lt;</button><button type="button" class="audio-play" data-audio-action="play" title="재생" aria-label="재생"><svg viewBox="0 0 24 24"><path d="m9 6 10 6-10 6z"/></svg></button><button type="button" data-audio-action="forward" title="10초 앞으로" aria-label="10초 앞으로">&gt;&gt;</button><button type="button" class="audio-speed" data-audio-action="speed" title="재생 속도" aria-label="재생 속도">1x</button><span class="audio-volume-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></span><input class="audio-volume" id="audio-volume-slider" type="range" min="0" max="1" step="0.01" value="1" aria-label="볼륨"></div></section>
@@ -390,6 +397,156 @@ async function toggleDetector(name, enabled) {
   } catch (error) { toast(error.message); }
 }
 
+const GEAR_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>';
+
+function detectorSchema(name) {
+  return (state.detectorOptions?.detectors || []).find((item) => item.name === name) || null;
+}
+
+function optionValueLabel(option, value) {
+  if (option.type !== 'choice') return String(value);
+  const match = (option.choices || []).find((choice) => String(choice.value) === String(value));
+  return match ? match.label : String(value);
+}
+
+function effectTagLabel(effect) {
+  return (state.detectorOptions?.effectLabels || {})[effect] || '';
+}
+
+function detectorOptionChips(name, values) {
+  const schema = detectorSchema(name);
+  if (!schema) return '';
+  const chips = schema.options.map((option) => {
+    const raw = values?.[option.key];
+    if (raw === undefined) return '';
+    const text = `${option.label} ${optionValueLabel(option, raw)}${option.unit ? ` ${option.unit}` : ''}`;
+    return `<span class="${option.effect === 'verdict' ? 'total-off' : ''}" title="${escapeHtml(option.hint)}">${escapeHtml(text)}</span>`;
+  });
+  chips.push(values?.includedInTotal === false
+    ? '<span class="total-off" title="원점수는 계산하지만 총점에는 넣지 않습니다.">평가만</span>'
+    : '<span>Total 반영</span>');
+  return `<div class="detector-card-flags">${chips.filter(Boolean).join('')}</div>`;
+}
+
+function renderDetectorGrid() {
+  const grid = $('detector-grid');
+  grid.innerHTML = state.detectors.map((item) => {
+    const status = !item.available ? '미설치' : item.active ? '활성' : '비활성';
+    const gear = item.available ? `<button type="button" class="detector-options-button" data-detector-options="${escapeHtml(item.name)}" title="${escapeHtml(item.label)} 설정" aria-label="${escapeHtml(item.label)} 설정">${GEAR_ICON}</button>` : '';
+    const chips = item.available ? detectorOptionChips(item.name, item.options) : '';
+    return `<article class="model-card"><div class="model-card-head"><h3>${escapeHtml(item.label)}</h3><div class="model-card-actions">${gear}<button type="button" class="detector-toggle ${item.active ? 'active' : ''}" data-detector-name="${escapeHtml(item.name)}" data-detector-enabled="${item.active ? 'true' : 'false'}" aria-label="${escapeHtml(item.label)} ${item.active ? '비활성화' : '활성화'}" aria-pressed="${item.active}" ${item.available ? '' : 'disabled'}><span></span></button></div></div><span class="status-badge ${item.active ? '' : 'off'}">${status}</span><p>${escapeHtml(item.notes)}</p>${chips}${item.available ? '' : `<small class="detector-reason">${escapeHtml(item.reason || '사용할 수 없습니다.')}</small><small class="detector-hint">${escapeHtml(item.installHint || '')}</small>`}<small>${escapeHtml(item.license)}</small></article>`;
+  }).join('');
+  document.querySelectorAll('[data-detector-name]').forEach((button) => { button.onclick = () => toggleDetector(button.dataset.detectorName, button.dataset.detectorEnabled !== 'true'); });
+  document.querySelectorAll('[data-detector-options]').forEach((button) => { button.onclick = () => openDetectorOptions(button.dataset.detectorOptions); });
+}
+
+function renderEnsemblePanel() {
+  const options = state.detectorOptions;
+  if (!options) return;
+  const ensemble = options.ensemble;
+  const select = $('ensemble-method');
+  select.innerHTML = ensemble.methods.map((method) => `<option value="${escapeHtml(method.value)}">${escapeHtml(method.label)}</option>`).join('');
+  select.value = ensemble.method;
+  const active = ensemble.methods.find((method) => method.value === ensemble.method);
+  $('ensemble-hint').textContent = active ? active.hint : '';
+  const weights = $('ensemble-weights');
+  const weighted = ensemble.method === 'weightedGeometric';
+  weights.hidden = !weighted;
+  if (!weighted) return;
+  weights.innerHTML = options.detectors.map((item) => {
+    const value = ensemble.weights?.[item.name];
+    return `<label for="ensemble-weight-${escapeHtml(item.name)}"><span>${escapeHtml(item.label)}</span><input id="ensemble-weight-${escapeHtml(item.name)}" type="number" min="0" max="10" step="0.1" data-ensemble-weight="${escapeHtml(item.name)}" value="${value === undefined ? '1' : value}"><small>0이면 Total에서 빠집니다.</small></label>`;
+  }).join('');
+}
+
+function collectEnsemble() {
+  const select = $('ensemble-method');
+  const weights = {};
+  document.querySelectorAll('[data-ensemble-weight]').forEach((input) => { weights[input.dataset.ensembleWeight] = Number(input.value); });
+  return { method: select.value, weights };
+}
+
+function optionRow(option, value) {
+  const control = option.type === 'toggle'
+    ? `<input type="checkbox" id="detector-opt-${escapeHtml(option.key)}" data-option-key="${escapeHtml(option.key)}" data-option-type="toggle" ${value ? 'checked' : ''}>`
+    : option.type === 'number'
+      ? `<input type="number" id="detector-opt-${escapeHtml(option.key)}" data-option-key="${escapeHtml(option.key)}" data-option-type="number" min="${option.min}" max="${option.max}" step="${option.step}" value="${value}">`
+      : `<select id="detector-opt-${escapeHtml(option.key)}" data-option-key="${escapeHtml(option.key)}" data-option-type="choice">${option.choices.map((choice) => `<option value="${escapeHtml(choice.value)}" ${String(choice.value) === String(value) ? 'selected' : ''}>${escapeHtml(choice.label)}</option>`).join('')}</select>`;
+  const tag = effectTagLabel(option.effect);
+  return `<div class="option-row"><label for="detector-opt-${escapeHtml(option.key)}"><span>${escapeHtml(option.label)}${option.unit ? ` (${escapeHtml(option.unit)})` : ''}</span><small>${escapeHtml(option.hint)}</small></label><div class="option-control">${control}${tag ? `<span class="effect-tag ${option.effect === 'verdict' ? 'effect-verdict' : ''}">${escapeHtml(tag)}</span>` : ''}</div></div>`;
+}
+
+function openDetectorOptions(name) {
+  const schema = detectorSchema(name);
+  if (!schema) return toast('탐지기 설정을 불러오지 못했습니다.');
+  const slot = state.detectors.find((item) => item.name === name);
+  const values = schema.values || {};
+  $('detector-options-title').textContent = schema.label;
+  $('detector-options-subtitle').textContent = '저장하면 다음 분석부터 적용됩니다.';
+  $('detector-options-note').textContent = slot?.available ? '저장하면 다음 분석부터 적용됩니다.' : (slot?.reason || '가중치가 없어 점수는 계산되지 않습니다.');
+  const locked = `<section class="detector-options-section"><h3>모델 고정값 <code>변경 불가</code></h3><p>${escapeHtml(schema.lockedNote || '')}</p><div class="locked-list">${(schema.locked || []).map((item) => `<div><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong></div>`).join('')}</div></section>`;
+  const rows = schema.options.map((option) => optionRow(option, values[option.key])).join('');
+  const include = schema.includedInTotalOption;
+  const body = `${locked}<section class="detector-options-section"><h3>Total 반영</h3>${optionRow(include, values.includedInTotal)}</section>${rows ? `<section class="detector-options-section"><h3>분석 옵션</h3>${rows}</section>` : ''}${slot && !slot.available ? `<div class="detector-unavailable">${escapeHtml(slot.reason || '가중치가 없습니다.')}<br>${escapeHtml(slot.installHint || '')}</div>` : ''}`;
+  $('detector-options-body').innerHTML = body;
+  $('detector-options-dialog').dataset.detectorName = name;
+  $('detector-options-dialog').hidden = false;
+  document.body.classList.add('dialog-open');
+}
+
+function collectDetectorOptions() {
+  const name = $('detector-options-dialog').dataset.detectorName;
+  const schema = detectorSchema(name);
+  const values = { ...(schema?.values || {}) };
+  $('detector-options-body').querySelectorAll('[data-option-key]').forEach((input) => {
+    const key = input.dataset.optionKey;
+    if (input.dataset.optionType === 'toggle') values[key] = input.checked;
+    else if (input.dataset.optionType === 'number') values[key] = Number(input.value);
+    else values[key] = input.value;
+  });
+  return { [name]: values };
+}
+
+async function putDetectorOptions(detectors, ensemble) {
+  const response = await fetch('/api/detector-options', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ detectors, ensemble }) });
+  if (!response.ok) throw new Error((await response.json()).detail || '탐지기 설정을 저장하지 못했습니다.');
+  return response.json();
+}
+
+async function saveDetectorOptions() {
+  const name = $('detector-options-dialog').dataset.detectorName;
+  const body = $('detector-options-body');
+  const label = detectorSchema(name)?.label || name;
+  body.classList.add('settings-saving');
+  try {
+    await putDetectorOptions(collectDetectorOptions(), collectEnsemble());
+    await loadDetectorOptions();
+    await loadHealth();
+    $('detector-options-dialog').hidden = true;
+    if ($('browser-dialog').hidden) document.body.classList.remove('dialog-open');
+    toast(`${label} 설정을 저장했습니다. 다음 분석부터 적용됩니다.`);
+  } catch (error) { toast(error.message); }
+  finally { body.classList.remove('settings-saving'); }
+}
+
+async function saveEnsemble() {
+  try {
+    await putDetectorOptions({}, collectEnsemble());
+    await loadDetectorOptions();
+    await loadHealth();
+    toast('Total 결합 방식을 저장했습니다. 다음 분석부터 적용됩니다.');
+  } catch (error) { toast(error.message); }
+}
+
+async function loadDetectorOptions() {
+  try {
+    const response = await fetch('/api/detector-options');
+    if (!response.ok) throw new Error('탐지기 설정을 불러오지 못했습니다.');
+    state.detectorOptions = await response.json();
+    renderEnsemblePanel();
+  } catch (error) { toast(error.message); }
+}
+
 async function loadHealth() {
   try {
     const data = await (await fetch('/health')).json(); state.detectors = data.detectors || [];
@@ -398,8 +555,7 @@ async function loadHealth() {
     const installed = state.detectors.filter((item) => item.available).length;
     const total = state.detectors.length;
     $('health-text').textContent = `탐지기 ${active}/${installed}/${total} · FFmpeg ${data.ffmpeg ? '정상' : '확인 필요'}`; $('detector-count').textContent = `${active}/${installed}/${total}`;
-    $('detector-grid').innerHTML = state.detectors.map((item) => { const status = !item.available ? '미설치' : item.active ? '활성' : '비활성'; return `<article class="model-card"><div class="model-card-head"><h3>${escapeHtml(item.label)}</h3><button type="button" class="detector-toggle ${item.active ? 'active' : ''}" data-detector-name="${escapeHtml(item.name)}" data-detector-enabled="${item.active ? 'true' : 'false'}" aria-label="${escapeHtml(item.label)} ${item.active ? '비활성화' : '활성화'}" aria-pressed="${item.active}" ${item.available ? '' : 'disabled'}><span></span></button></div><span class="status-badge ${item.active ? '' : 'off'}">${status}</span><p>${escapeHtml(item.notes)}</p>${item.available ? '' : `<small class="detector-reason">${escapeHtml(item.reason || '사용할 수 없습니다.')}</small><small class="detector-hint">${escapeHtml(item.installHint || '')}</small>`}<small>${escapeHtml(item.license)}</small></article>`; }).join('');
-    document.querySelectorAll('[data-detector-name]').forEach((button) => { button.onclick = () => toggleDetector(button.dataset.detectorName, button.dataset.detectorEnabled !== 'true'); });
+    renderDetectorGrid();
   } catch { $('health-dot').classList.add('bad'); $('health-text').textContent = '서버 연결 실패'; }
 }
 
@@ -466,7 +622,7 @@ async function saveSettings(event) {
 document.querySelectorAll('.nav-item[data-page]').forEach((button) => button.onclick = () => {
   const page = button.dataset.page; document.querySelectorAll('.nav-item[data-page]').forEach((node) => node.classList.toggle('active', node === button));
   document.querySelectorAll('[data-page-panel]').forEach((panel) => { panel.hidden = panel.dataset.pagePanel !== page; });
-  [$('page-title').textContent, $('breadcrumb').textContent] = PAGE_META[page]; if (page === 'reports') loadReports(); if (page === 'settings') loadSettings();
+  [$('page-title').textContent, $('breadcrumb').textContent] = PAGE_META[page]; if (page === 'reports') loadReports(); if (page === 'settings') loadSettings(); if (page === 'detectors') loadDetectorOptions();
 });
 $('pick-files').onclick = (event) => { event.stopPropagation(); openBrowser('files'); };
 $('pick-folder').onclick = (event) => { event.stopPropagation(); openBrowser('folder'); };
@@ -483,12 +639,15 @@ document.querySelectorAll('[data-history-filter]').forEach((button) => button.on
   renderHistory();
 });
 $('browser-close').onclick = $('browser-cancel').onclick = () => closeDialog('browser-dialog');
+$('detector-options-close').onclick = $('detector-options-cancel').onclick = () => closeDialog('detector-options-dialog');
+$('detector-options-save').onclick = saveDetectorOptions;
+$('ensemble-method').onchange = saveEnsemble;
 $('browser-confirm').onclick = () => { if (state.browser.settingsTarget) { $(`settings-${state.browser.settingsTarget}-path`).value = state.browser.selectedFolder; } else { addLocalPaths(state.browser.mode === 'files' ? [...state.browser.selectedFiles] : [state.browser.selectedFolder]); } closeDialog('browser-dialog'); };
 $('browser-up').onclick = () => state.browser.listing?.parent && browse(state.browser.listing.parent).catch((error) => toast(error.message));
 $('select-current-folder').onclick = () => { state.browser.selectedFolder = state.browser.listing.path; renderBrowser(); };
 $('result-dialog-close').onclick = $('result-dialog-confirm').onclick = () => closeDialog('result-dialog');
-['browser-dialog', 'result-dialog'].forEach((id) => $(id).onclick = (event) => { if (event.target === $(id)) closeDialog(id); });
-document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { if (!$('result-dialog').hidden) closeDialog('result-dialog'); else if (!$('browser-dialog').hidden) closeDialog('browser-dialog'); } });
+['browser-dialog', 'result-dialog', 'detector-options-dialog'].forEach((id) => $(id).onclick = (event) => { if (event.target === $(id)) closeDialog(id); });
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { if (!$('result-dialog').hidden) closeDialog('result-dialog'); else if (!$('detector-options-dialog').hidden) closeDialog('detector-options-dialog'); else if (!$('browser-dialog').hidden) closeDialog('browser-dialog'); } });
 const dropZone = $('drop-zone'); dropZone.onclick = () => openBrowser('files'); dropZone.onkeydown = (event) => { if (event.key === 'Enter' || event.key === ' ') openBrowser('files'); };
 ['dragenter', 'dragover'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.add('dragging'); }));
 ['dragleave', 'drop'].forEach((type) => dropZone.addEventListener(type, (event) => { event.preventDefault(); dropZone.classList.remove('dragging'); }));
@@ -496,4 +655,4 @@ dropZone.addEventListener('drop', (event) => addFiles(event.dataTransfer.files))
 document.querySelectorAll('[data-settings-folder]').forEach((button) => button.onclick = () => { const target = button.dataset.settingsFolder; openBrowser('folder', target, $(`settings-${target}-path`).value); });
 $('settings-form').addEventListener('submit', saveSettings);
 new ResizeObserver(() => requestAnimationFrame(syncVariableHistoryCardHeights)).observe($('history-list'));
-renderFiles(); loadHealth(); loadHistory(); loadSettings(); loadResources(); setInterval(loadResources, 3000);
+renderFiles(); loadDetectorOptions(); loadHealth(); loadHistory(); loadSettings(); loadResources(); setInterval(loadResources, 3000);

@@ -10,11 +10,17 @@ import numpy as np
 from scipy.signal import resample_poly
 
 from ..audioio import Audio, load as load_audio
+from ..detector_options import option_labels, for_detector
 
+# Model-coupled preprocessing. These belong to the checkpoint and are not
+# configurable, so they stay as module constants while the editable segment and
+# aggregation controls live in `probe.detector_options`.
 SAMPLE_RATE = 16_000
 WINDOW_SECONDS = 5.0
 HOP_SECONDS = 2.5
 MAX_WINDOWS = 24
+
+DEFAULT_TOP_K = 3
 
 
 def _resample(audio: Audio) -> np.ndarray:
@@ -25,23 +31,23 @@ def _resample(audio: Audio) -> np.ndarray:
     return resample_poly(mono, SAMPLE_RATE // common, audio.sample_rate // common).astype(np.float32)
 
 
-def _window_starts(length: int, window: int, hop: int) -> list[int]:
+def _window_starts(length: int, window: int, hop: int, max_windows: int) -> list[int]:
     if length <= window:
         return [0]
     starts = list(range(0, length - window + 1, hop))
     if starts[-1] != length - window:
         starts.append(length - window)
-    if len(starts) <= MAX_WINDOWS:
+    if len(starts) <= max_windows:
         return starts
-    indices = np.linspace(0, len(starts) - 1, MAX_WINDOWS, dtype=int)
+    indices = np.linspace(0, len(starts) - 1, max_windows, dtype=int)
     return [starts[index] for index in indices]
 
 
-def _prepare(audio: Audio) -> tuple[np.ndarray, list[int]]:
+def _prepare(audio: Audio, max_windows: int, hop_seconds: float) -> tuple[np.ndarray, list[int]]:
     mono = _resample(audio)
     window = int(WINDOW_SECONDS * SAMPLE_RATE)
-    hop = int(HOP_SECONDS * SAMPLE_RATE)
-    starts = _window_starts(mono.size, window, hop)
+    hop = max(1, int(hop_seconds * SAMPLE_RATE))
+    starts = _window_starts(mono.size, window, hop, max_windows)
     chunks = []
     for start in starts:
         chunk = mono[start : start + window]
@@ -50,6 +56,19 @@ def _prepare(audio: Audio) -> tuple[np.ndarray, list[int]]:
         chunk = chunk / max(float(np.std(chunk)), 1e-6)
         chunks.append(chunk.astype(np.float32, copy=False))
     return np.stack(chunks), starts
+
+
+def _aggregate(scores: np.ndarray, aggregation: str, top_k: int) -> tuple[float, str]:
+    """Song-level score from segment scores. The label is kept in the result so a
+    saved report says which aggregation produced the number."""
+    if scores.size == 0:
+        return 0.0, "empty"
+    if aggregation == "mean":
+        return float(np.mean(scores)), "all segment mean"
+    if aggregation == "median":
+        return float(np.median(scores)), "segment median"
+    count = max(1, min(int(top_k), scores.size))
+    return float(np.mean(np.sort(scores)[-count:])), f"top-{count} segment mean"
 
 
 @lru_cache(maxsize=1)
@@ -66,7 +85,12 @@ def _load_model(model_dir: str):
 def analyze_audio(audio: Audio, model_dir: Path) -> dict:
     import torch
 
-    chunks, starts = _prepare(audio)
+    options = for_detector("sonics")
+    max_windows = int(options["maxWindows"])
+    hop_seconds = float(options["hopSeconds"])
+    threshold = float(options["threshold"])
+
+    chunks, starts = _prepare(audio, max_windows, hop_seconds)
     model = _load_model(str(model_dir))
     values: list[float] = []
     with torch.inference_mode():
@@ -76,8 +100,7 @@ def analyze_audio(audio: Audio, model_dir: Path) -> dict:
             values.extend(torch.sigmoid(logits).cpu().numpy().astype(float).tolist())
 
     scores = np.asarray(values, dtype=float)
-    top_count = min(3, scores.size)
-    aggregate = float(np.mean(np.sort(scores)[-top_count:]))
+    aggregate, aggregation_label = _aggregate(scores, str(options["aggregation"]), int(options["topK"]))
     segments = [
         {
             "startSeconds": round(start / SAMPLE_RATE, 3),
@@ -90,10 +113,21 @@ def analyze_audio(audio: Audio, model_dir: Path) -> dict:
         "name": "sonics",
         "label": "SONICS / SpecTTTra gamma 5s",
         "score": round(aggregate, 4),
-        "aggregation": "top-3 segment mean",
+        "aggregation": aggregation_label,
         "segmentMean": round(float(np.mean(scores)), 4),
         "segmentMax": round(float(np.max(scores)), 4),
-        "positiveFraction": round(float(np.mean(scores >= 0.5)), 4),
+        "segmentMedian": round(float(np.median(scores)), 4),
+        "positiveFraction": round(float(np.mean(scores >= threshold)), 4),
+        "threshold": threshold,
+        "verdict": "AI 우세" if aggregate >= threshold else "인간 우세",
+        "options": {
+            "maxWindows": max_windows,
+            "hopSeconds": hop_seconds,
+            "aggregation": str(options["aggregation"]),
+            "topK": int(options["topK"]),
+            "threshold": threshold,
+        },
+        "optionLabels": option_labels("sonics"),
         "segments": segments,
         "modelVersion": "awsaf49/sonics-spectttra-gamma-5s",
     }

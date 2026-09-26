@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..config import MODELS_DIR
+from ..detector_options import describe as describe_options, for_detector
 
 SETTINGS_PATH = MODELS_DIR / "detector-settings.json"
 
@@ -172,7 +173,21 @@ for detector_name, is_enabled in _load_settings().items():
 
 
 def describe() -> list[dict]:
-    return [detector.as_dict() for detector in sorted(DETECTORS.values(), key=lambda item: item.label.casefold())]
+    """Detector slots plus the analysis options currently in effect.
+
+    Reports embed this, so a saved result always states which segment,
+    aggregation, and threshold values produced its numbers.
+    """
+    schema = {item["name"]: item for item in describe_options()["detectors"]}
+    out = []
+    for detector in sorted(DETECTORS.values(), key=lambda item: item.label.casefold()):
+        payload = detector.as_dict()
+        entry = schema.get(detector.name, {})
+        payload["options"] = for_detector(detector.name)
+        payload["locked"] = entry.get("locked", [])
+        payload["lockedNote"] = entry.get("lockedNote", "")
+        out.append(payload)
+    return out
 
 
 def set_enabled(name: str, enabled: bool) -> dict:

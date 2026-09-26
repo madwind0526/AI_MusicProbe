@@ -17,6 +17,7 @@ from . import __version__, history as history_module, report as report_module
 from .app_settings import load_settings, save_settings
 from .audioio import AudioToolError
 from .config import HOST, PORT, REPORTS_DIR, SCRATCH_DIR
+from .detector_options import describe as describe_detector_options, load as load_detector_options, save as save_detector_options
 from .detectors import describe as describe_detectors, set_enabled as set_detector_enabled
 from .file_analysis import analyze_files
 from .file_browser import browse_directory
@@ -55,6 +56,33 @@ class FileAnalyzeRequest(BaseModel):
 
 class DetectorToggleRequest(BaseModel):
     enabled: bool
+
+
+class DetectorValueRequest(BaseModel):
+    """One detector's option values. Every field is optional so the WebUI can
+    send a partial form and let the server fill in schema defaults."""
+
+    includedInTotal: bool | None = None
+    maxWindows: int | None = None
+    hopSeconds: float | None = None
+    aggregation: str | None = None
+    topK: int | None = None
+    maxDurationS: int | None = None
+    analysisPosition: str | None = None
+    segmentCount: int | None = None
+    segmentSelection: str | None = None
+    minValidSegments: int | None = None
+    threshold: float | None = None
+
+
+class EnsembleRequest(BaseModel):
+    method: str | None = None
+    weights: dict[str, float] | None = None
+
+
+class DetectorOptionsRequest(BaseModel):
+    detectors: dict[str, DetectorValueRequest] = Field(default_factory=dict)
+    ensemble: EnsembleRequest = Field(default_factory=EnsembleRequest)
 
 
 class FavoriteRequest(BaseModel):
@@ -110,6 +138,29 @@ def health() -> dict:
 @app.get("/api/detectors")
 def detectors() -> dict:
     return {"detectors": describe_detectors()}
+
+
+@app.get("/api/detector-options")
+def get_detector_options() -> dict:
+    return describe_detector_options()
+
+
+@app.put("/api/detector-options")
+def update_detector_options(request: DetectorOptionsRequest) -> dict:
+    payload = request.model_dump()
+    sent = payload.get("ensemble") or {}
+    # An omitted ensemble block must not reset the combination method, so the
+    # caller's saved values fill the gap. The WebUI always sends both.
+    if sent.get("method") is None or sent.get("weights") is None:
+        current = load_detector_options()["ensemble"]
+        payload["ensemble"] = {
+            "method": current["method"] if sent.get("method") is None else sent["method"],
+            "weights": current["weights"] if sent.get("weights") is None else sent["weights"],
+        }
+    try:
+        return save_detector_options(payload)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"탐지기 설정을 저장하지 못했습니다: {exc}") from exc
 
 
 @app.patch("/api/detectors/{name}")

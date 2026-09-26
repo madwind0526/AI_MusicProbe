@@ -10,12 +10,23 @@ import numpy as np
 from scipy.signal import resample_poly
 
 from ..audioio import Audio, load as load_audio
+from ..detector_options import for_detector, option_labels
 
+# The public model card fixes 44.1 kHz mono and 4-second segments, and the
+# released ONNX is a single end-to-end graph, so there is no internal knob to
+# expose. Only segment extraction and aggregation stay configurable.
 SAMPLE_RATE = 44_100
 SEGMENT_SECONDS = 4
 SEGMENT_SAMPLES = SAMPLE_RATE * SEGMENT_SECONDS
 SEGMENT_COUNT = 7
 MIN_VALID_SEGMENTS = 4
+
+AGGREGATION_LABELS = {
+    "median": "segment median",
+    "mean": "all segment mean",
+    "top3": "top-3 segment mean",
+    "max": "segment max",
+}
 
 
 def _resample(audio: Audio) -> np.ndarray:
@@ -26,10 +37,26 @@ def _resample(audio: Audio) -> np.ndarray:
     return resample_poly(mono, SAMPLE_RATE // common, audio.sample_rate // common).astype(np.float32)
 
 
-def _segment_starts(length: int) -> list[int]:
+def _segment_starts(length: int, count: int, selection: str) -> list[int]:
     if length <= SEGMENT_SAMPLES:
         return [0]
-    return np.linspace(0, length - SEGMENT_SAMPLES, SEGMENT_COUNT, dtype=np.int64).tolist()
+    tail = length - SEGMENT_SAMPLES
+    if selection == "start":
+        return [min(index * SEGMENT_SAMPLES, tail) for index in range(count)]
+    return np.linspace(0, tail, count, dtype=np.int64).tolist()
+
+
+def _aggregate(values: np.ndarray, aggregation: str) -> float:
+    if values.size == 0:
+        return 0.0
+    if aggregation == "mean":
+        return float(np.mean(values))
+    if aggregation == "max":
+        return float(np.max(values))
+    if aggregation == "top3":
+        top = min(3, values.size)
+        return float(np.mean(np.sort(values)[-top:]))
+    return float(np.median(values))
 
 
 @lru_cache(maxsize=1)
@@ -49,11 +76,18 @@ def _predict(chunk: np.ndarray, model_path: Path) -> float:
 
 
 def analyze_audio(audio: Audio, model_path: Path) -> dict:
+    options = for_detector("artifactnet")
+    segment_count = int(options["segmentCount"])
+    selection = str(options["segmentSelection"])
+    aggregation = str(options["aggregation"])
+    min_valid = int(options["minValidSegments"])
+    threshold = float(options["threshold"])
+
     mono = _resample(audio)
     if mono.size == 0:
         raise ValueError("분석할 오디오 샘플이 없습니다.")
 
-    starts = _segment_starts(mono.size)
+    starts = _segment_starts(mono.size, segment_count, selection)
     segments = []
     for start in starts:
         chunk = mono[start : start + SEGMENT_SAMPLES]
@@ -71,18 +105,29 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         segments.append(segment)
 
     values = np.asarray([item["score"] for item in segments if item["score"] is not None], dtype=float)
-    required = min(MIN_VALID_SEGMENTS, len(segments))
+    required = min(min_valid, len(segments))
     if values.size < required:
         raise ValueError(f"ArtifactNet 유효 구간이 부족합니다: {values.size}/{len(segments)}")
+    aggregate = _aggregate(values, aggregation)
     return {
         "name": "artifactnet",
         "label": "ArtifactNet v9.4",
-        "score": round(float(np.median(values)), 4),
-        "aggregation": "segment median",
+        "score": round(aggregate, 4),
+        "aggregation": AGGREGATION_LABELS.get(aggregation, "segment median"),
         "segmentMean": round(float(np.mean(values)), 4),
         "segmentMedian": round(float(np.median(values)), 4),
         "segmentMax": round(float(np.max(values)), 4),
-        "positiveFraction": round(float(np.mean(values >= 0.5)), 4),
+        "positiveFraction": round(float(np.mean(values >= threshold)), 4),
+        "threshold": threshold,
+        "verdict": "AI 우세" if aggregate >= threshold else "인간 우세",
+        "options": {
+            "segmentCount": segment_count,
+            "segmentSelection": selection,
+            "aggregation": aggregation,
+            "minValidSegments": min_valid,
+            "threshold": threshold,
+        },
+        "optionLabels": option_labels("artifactnet"),
         "validSegmentCount": int(values.size),
         "segmentCount": len(segments),
         "coverage": round(float(values.size / len(segments)), 4),

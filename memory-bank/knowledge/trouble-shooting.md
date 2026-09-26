@@ -244,3 +244,11 @@ When a fixed endpoint such as `/api/audio/peaks` is declared after `/api/audio/{
 - lofcz currently scores the full track truncated at 300 seconds. Its 30-second/15-second-hop segment pass is diagnostic only and does not affect Total. The 16 kHz, 8192 FFT, 1-8 kHz band, hull size 10, and dB bounds are model-coupled preprocessing.
 - ArtifactNet v9.4 currently follows the public 44.1 kHz, 4-second, fixed-7-chunk median protocol with at least 4 valid chunks. Alternative mean/max/top-3 aggregation did not correct directionality across the existing E0001/E0002 reference set.
 - A per-detector threshold changes only a binary verdict unless the score-combination function explicitly uses it. The current Total uses the equal-weight geometric mean of raw detector scores, so one near-zero detector can collapse the result.
+
+## Pydantic model_dump() turns omitted optional fields into explicit None (2026-09-27)
+
+- Symptom: a partial `PUT` body (`{"detectors":{"sonics":{"topK":1}}}`) silently turned `includedInTotal` to `false` for every detector it touched, disabling Total reflection.
+- Cause: `DetectorValueRequest.includedInTotal` was `bool | None = None`, but the handler called `request.model_dump()`. Pydantic emits **every declared field**, so the omitted key arrived as an explicit `None`. `normalize()` tested key presence with `if "includedInTotal" in raw` and then did `bool(raw.get(...))`, and `bool(None)` is `False`.
+- Unit tests missed it because they passed a hand-written dict where the key was genuinely absent. Only a payload shaped like `model_dump()` reproduced the bug.
+- Fix: treat `None` as "not provided" in the normalizer (`if raw.get("includedInTotal") is not None:`), and let the route fill an omitted `ensemble` block from the currently saved values so a detector-only update cannot reset the combination method.
+- Rule: for any partial-update API, normalize with `.get(key) is not None`, never with `key in dict` plus a truthiness cast. And test the exact `model_dump()` shape, not a hand-written dict.

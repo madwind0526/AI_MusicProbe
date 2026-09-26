@@ -84,6 +84,7 @@ Content-Type: application/json
 | `POST` | `/api/analyze/upload` | 업로드 분석 |
 | `GET` | `/api/files/browse` | 내장 탐색기 |
 | `GET` | `/api/settings` · `PUT` `/api/settings` | UI 설정 |
+| `GET` | `/api/detector-options` · `PUT` `/api/detector-options` | 탐지기 분석 옵션과 Total 결합 방식 |
 | `GET` | `/api/history` | 분석 이력 |
 | `GET` | `/api/reports` · `/api/reports/{name}` | 저장된 리포트 |
 | `GET` | `/api/resources` | CPU·RAM·GPU 사용량 |
@@ -99,6 +100,41 @@ Content-Type: application/json
   "totalScore": 72.4,
   "confidence": 44.8,
   "conclusion": "AI 생성 흔적이 비교적 강함"
+}
+```
+
+## 탐지 분석 옵션
+
+탐지 옵션은 **탐지기 페이지**에서 바꿉니다. 설정 페이지에는 없습니다.
+
+- 페이지 상단 스트립: Total 점수 결합 방식과 탐지기별 가중치
+- 탐지기 카드 옆 톱니바퀴 아이콘: 해당 탐지기의 분석 옵션과 `Total 반영` / `평가만` 토글
+
+저장한 값은 `detector-options.json`에 남고 **다음 분석부터** 적용됩니다. 이미 끝난 결과는 바뀌지 않습니다.
+
+결합 방식은 기하평균(기본), 산술평균, 중앙값, 가중 기하평균 중에서 고릅니다.
+
+| 탐지기 | 바꿀 수 있는 항목 | 고정한 항목 |
+|--------|-------------------|-------------|
+| SONICS gamma | 최대 구간 수, 구간 간격, Top-K, 집계 방식, 임계값 | 16 kHz, 5초 구간 |
+| lofcz vocoder fakeprint | 최대 분석 길이, 분석 위치, 집계 방식, 임계값 | 16 kHz, FFT 8192, 1–8 kHz |
+| ArtifactNet v9.4 | 구간 수, 구간 선택, 집계 방식, 최소 유효 구간, 임계값 | 44.1 kHz, 4초 구간 |
+
+모델 입력과 결합된 샘플레이트·FFT·주파수 대역은 바꾸지 않습니다. 팝업에서 `변경 불가`로 표시됩니다.
+
+### ArtifactNet은 기본이 `평가만`
+
+ArtifactNet 원점수는 다른 탐지기보다 자릿수가 작습니다. E0001·E0002에서 집계법과 가중치를 바꿔도 방향성이 고쳐지지 않아, 근사 0인 값을 기하평균에 넣어 Human 대조군 점수까지 같이 눌러버리는 일이 생겼습니다. 그래서 산출은 하되 Total에는 넣지 않는 `평가만`이 기본입니다. 필요하면 팝업에서 `Total 반영`으로 바꿀 수 있습니다.
+
+분석 결과에는 이 설정이 그대로 기록되므로 나중에 왜 그 점수가 나왔는지 확인할 수 있습니다.
+
+```jsonc
+"detectorSettings": {
+  "ensemble": { "method": "geometric", "weights": {} },
+  "detectors": { "sonics": { "includedInTotal": true, "maxWindows": 24, "...": "..." } }
+},
+"scoreInfo": {
+  "components": { "method": "detector-geometric-mean-v1", "inputs": {}, "included": ["sonics", "lofcz"], "excluded": ["artifactnet"] }
 }
 ```
 
