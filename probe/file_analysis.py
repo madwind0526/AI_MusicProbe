@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 import numpy as np
 
@@ -68,9 +68,7 @@ def _combine(values: np.ndarray, names: list[str], method: str, weights: dict[st
     if method == "weightedGeometric":
         weight_array = np.asarray([max(0.0, float(weights.get(name, 1.0))) for name in names], dtype=float)
         if float(weight_array.sum()) <= 0:
-            # Every weight is zero, so the request carries no preference at all.
-            # Falling back to the plain mean is more honest than returning 0.
-            return float(np.mean(values))
+            raise ValueError("Total에 반영할 가중치가 없습니다.")
         normalized = weight_array / weight_array.sum()
         return float(np.exp(np.sum(normalized * np.log(np.maximum(values, GEOMETRIC_FLOOR)))))
     return float(np.prod(np.maximum(values, GEOMETRIC_FLOOR)) ** (1.0 / values.size))
@@ -90,10 +88,12 @@ def _score(detector_results: list[dict], ensemble: dict | None = None) -> tuple[
 
     scores = {item["name"]: max(0.0, min(1.0, float(item["score"]))) for item in valid}
     included = [item for item in valid if item.get("includedInTotal", True)]
+    if method == "weightedGeometric":
+        included = [item for item in included if max(0.0, float(weights.get(item["name"], 1.0))) > 0]
     names = [item["name"] for item in included]
     if not names:
         excluded = ", ".join(sorted(scores)) or "없음"
-        return None, 0.0, f"Total 반영 탐지기가 없어 점수를 계산하지 못했습니다. (평가만: {excluded})", {}
+        return None, 0.0, f"Total 반영 탐지기가 없어 점수를 계산하지 못했습니다. (평가만 또는 가중치 0: {excluded})", {}
 
     values = np.asarray([scores[name] for name in names], dtype=float)
     # The geometric mean rewards corroboration and prevents one saturated
@@ -157,10 +157,18 @@ def analyze_file(path: str | Path) -> dict:
     }
 
 
-def analyze_files(paths: Iterable[str | Path], recursive: bool = True) -> dict:
+def analyze_files(
+    paths: Iterable[str | Path],
+    recursive: bool = True,
+    on_progress: Callable[[int, int, Path | None], None] | None = None,
+) -> dict:
     files = expand_inputs(paths, recursive=recursive)
+    if on_progress is not None:
+        on_progress(0, len(files), None)
     results = []
-    for path in files:
+    for index, path in enumerate(files, start=1):
+        if on_progress is not None:
+            on_progress(index, len(files), path)
         try:
             results.append(analyze_file(path))
         except (AudioToolError, ValueError, OSError) as error:

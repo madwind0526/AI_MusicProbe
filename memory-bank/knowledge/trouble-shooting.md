@@ -252,3 +252,34 @@ When a fixed endpoint such as `/api/audio/peaks` is declared after `/api/audio/{
 - Unit tests missed it because they passed a hand-written dict where the key was genuinely absent. Only a payload shaped like `model_dump()` reproduced the bug.
 - Fix: treat `None` as "not provided" in the normalizer (`if raw.get("includedInTotal") is not None:`), and let the route fill an omitted `ensemble` block from the currently saved values so a detector-only update cannot reset the combination method.
 - Rule: for any partial-update API, normalize with `.get(key) is not None`, never with `key in dict` plus a truthiness cast. And test the exact `model_dump()` shape, not a hand-written dict.
+## 가중 결합 설정의 0 가중치와 부분 저장
+
+- 가중 기하평균에서 모든 Total 대상 가중치가 0이면 산술평균으로 자동 대체하지 않는다. 설정 오류로 처리하고 하나 이상의 양수 가중치를 요구한다.
+- 가중치 0인 탐지기는 Total뿐 아니라 탐지기 합의도와 신뢰 지표에서도 제외해야 UI 설명과 계산 의미가 일치한다.
+- 일부 탐지기 옵션만 저장하는 API는 기본 설정에 요청값을 덮어쓰면 다른 사용자 설정이 초기화된다. 현재 저장값에 요청 patch를 병합한 뒤 정규화한다.
+
+## 반복 분석 결과와 저장 파일 이름 충돌
+
+- 반복 분석을 중복 제거하면 새 실행이 사라져 이전 결과를 덮어쓴 것처럼 보인다. 실행마다 고유 ID를 저장하고 표시 이름은 저장 시 `(1)`, `(2)` 순서로 확정한다.
+- 리포트 파일은 존재 확인 후 일반 쓰기를 하면 동시 저장 사이에 경합이 생길 수 있다. 배타 생성 모드로 파일을 열고 충돌할 때 다음 순번을 선택한다.
+- 표시 이름만 바꾸고 원본 `file` 경로는 유지해야 상세 정보와 오디오 재생이 계속 원본을 가리킨다.
+
+## Report/history copy deduplication
+
+- 한 번의 배치 분석은 `reports/*.json` 리포트 1개와 `reports/history/*.json` 이력 사본 1개를 만들 수 있다.
+- 이력 로더가 두 위치를 함께 읽을 때 같은 실행 시각·파일·점수·상태를 가진 리포트 원본 항목만 제외하고 이력 사본을 사용한다.
+- 서로 다른 실제 반복 실행은 `historyItemId`가 각각 다르므로 점수와 파일이 같아도 합치지 않는다.
+
+## ArtifactNet option split and API schema parity (2026-09-27)
+
+- E0001-1 raw AI audio produced a two-detector Total of 94.0 from SONICS 0.8839 and lofcz 1.0.
+- Across every exposed ArtifactNet combination, the closest three-detector result was 93.2 with 5 evenly selected segments, max aggregation, and level normalization disabled. Minimum-valid 3 versus 4 made no difference because all five segments were valid.
+- The five raw ArtifactNet segment scores were 0.0025, 0.0228, 0.1093, 0.0033, and 0.9146. Max aggregation therefore matches the target by selecting one outlier and is not a calibrated correction. Validate it against AI and human reference tracks before changing the default.
+- A UI option can appear in the detector schema but still be silently discarded when its field is absent from `DetectorValueRequest`. Keep the API request model in parity with every editable schema key and add a round-trip test for newly exposed options.
+- On the four-track E0001 reference set, 11 evenly selected segments with top-3 aggregation produced Total scores of 0.0 for the human track, 91.3 for the AI original, 74.5 for LANDR mastering, and 86.4 for SongYUE2 polish plus Mastering-1. This is less outlier-dependent than max aggregation, but the two post-processing variants did not preserve the expected relative order.
+- The selected default is now 11/even/top3 with level normalization disabled and ArtifactNet included in Total. The persisted detector options and the schema defaults must be updated together; changing only the schema leaves an existing `detector-options.json` unchanged.
+
+## Audio comparison delta panel (2026-09-27)
+
+- The independent comparison module rendered waveforms and spectrograms but had no post-visual numeric delta section. Add a dedicated `/api/audio/compare` endpoint and request it only after both paths are selected.
+- Compare scale-relative band levels for low, low-mid, mid, high-mid, high, and ultra-high bands, and report absolute RMS, peak, and true-peak deltas separately. This keeps overall gain changes distinct from spectral-shape changes.

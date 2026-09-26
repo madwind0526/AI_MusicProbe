@@ -4,7 +4,7 @@ SongYUE2와 독립적으로 실행되는 로컬 오디오 분석·탐지 앱. �
 음원 파일을 입력으로 받아 분석 결과와 total 점수를 반환하는 재사용 가능한 API이며,
 WebUI는 이 API를 호출하는 독립 클라이언트다. SongYUE2 연동은 필수가 아니라
 호출 가능한 소비자 중 하나다.
-최종 갱신: 2026-09-26
+최종 갱신: 2026-09-27
 
 ---
 
@@ -25,11 +25,11 @@ WebUI는 이 API를 호출하는 독립 클라이언트다. SongYUE2 연동은 �
 | `probe/loudness.py` | BS.1770-4 K-weighting, integrated LUFS, LRA, sample peak, crest | 동작, 교정 완료 |
 | `probe/stages.py` | 기존 stage 묶음 비교 호환 계층 | 동작, 주 API로 유지하지 않음 |
 | `probe/report.py` | 단계별 delta, peak 비교, chain floor, 포맷 flag | 동작 |
-| `probe/app.py` | FastAPI + static | 동작, 브라우저 미검증 |
+| `probe/app.py` | FastAPI + static | 동작, API smoke test 완료 |
 | `probe/cli.py` | `health` / `score` / `serve` | 동작 |
-| `probe/detectors/base.py` | SONICS / ArtifactNet / lofcz / attribution 슬롯 | **4개 전부 unavailable** |
-| `web/index.html`, `web/styles.css`, `web/app.js` | UI | 동작, `deltaBar()` 버그 있음 |
-| `tests/test_loudness.py` | LUFS 테스트 | **13 passed** |
+| `probe/detectors/base.py` | SONICS / ArtifactNet / lofcz / attribution 슬롯 | SONICS·lofcz·ArtifactNet 연결, attribution 미구현 |
+| `web/index.html`, `web/styles.css`, `web/app.js` | UI | 동작, 브라우저 주요 흐름 확인 |
+| `tests/` | API·분석·이력·옵션 회귀 테스트 | **67 passed** |
 
 ### API
 
@@ -101,7 +101,20 @@ Y: 세트가 추가되면서 해결된 것: ① MP3 대역 리미팅 교란 제�
 
 ---
 
-## 5. crest 가설의 사망
+## 5. 탐지기 옵션과 최신 ArtifactNet 실험
+
+ArtifactNet 기본값은 `11구간 / even / top-3 / levelNormalize=false`로 설정했다. E0001 네 곡에서 `5구간+최댓값`과 비교한 결과는 다음과 같다.
+
+| 음원 | 5구간 + 최댓값 | 11구간 + Top-3 |
+|------|----------------:|----------------:|
+| 인간 원곡 | 0.1 | **0.0** |
+| E0001 AI 원곡 | 93.2 | 91.3 |
+| E0001 LANDR 후처리 | 86.3 | 74.5 |
+| E0001 SongYUE2 다듬기 + Mastering-1 | 84.7 | 86.4 |
+
+11구간 + Top-3는 최댓값보다 단일 고점에 덜 의존하므로 현재 우선 후보로 채택했다. 후처리 두 결과의 상대 순서는 예상과 달라 paired corpus를 늘려 검증해야 한다. 기본값을 바꿔도 `detector-options.json`의 설정은 다음 분석부터 적용되며 기존 결과는 변경되지 않는다.
+
+## 6. crest 가설의 사망
 
 17곡 김현식 세트에서 crest factor가 human [17..22] dB vs AI [11..16] dB로 완전히 갈라져
 "유일하게 유망한 후보"로 보였었다. 코퍼스를 40배로 넓히자 median이 겹쳤다.

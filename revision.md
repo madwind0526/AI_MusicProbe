@@ -1,7 +1,7 @@
 # Revision Log — ai-music-probe
 
 가설이数据和 어떻게 무너졌는지, 그리고 그때 무엇을 고쳤는지.
-최종 갱신: 2026-09-26
+최종 갱신: 2026-09-27
 
 ---
 
@@ -119,13 +119,30 @@ raw count는 duration을 선형 따라간다. **onsets/sec는 전 코퍼스 8.4~
 
 ---
 
-## R6. 아직 안 한 것에 대한 정직한 기록
+## R6. 초기 상태에서 아직 안 한 것에 대한 기록
 
 | 항목 | 상태 |
 |------|------|
-| ML detector 가중치 (SONICS / ArtifactNet / lofcz) | 미구득, `onnxruntime` 미설치 |
-| 브라우저 UI 스모크 테스트 | 미실시 |
+| ML detector 가중치 (SONICS / ArtifactNet / lofcz) | 당시 미구득, 현재 SONICS·ArtifactNet·lofcz 연결 완료 |
+| 브라우저 UI 스모크 테스트 | 당시 미실시, 현재 주요 흐름 확인 완료 |
 | `web/app.js::deltaBar()` CSS `top` 덮어쓰기 | 미수정 |
-| git 저장소 | 아님 |
+| git 저장소 | 당시 아님, 현재 Git 저장소 사용 중 |
 | 한국 가요 vs 영어 포크 장르 confound | 미보정 |
 | `vocals-original` 부재로 SVC 전 보컬 측정 | 불가 |
+
+---
+
+## R7. ArtifactNet 기본 집계 변경 및 E0001 4종 비교 (2026-09-27)
+
+ArtifactNet의 구간 수와 집계 방법을 E0001 네 곡으로 비교했다. SONICS와 lofcz는 기존 설정을 유지하고 ArtifactNet만 바꿨다.
+
+| 음원 | 5구간 + 최댓값 | 11구간 + Top-3 평균 |
+|------|----------------:|--------------------:|
+| 인간 원곡 | 0.1 | **0.0** |
+| E0001 AI 원곡 | **93.2** | 91.3 |
+| E0001 AI 원곡 + LANDR 후처리 | 86.3 | **74.5** |
+| E0001 AI 원곡 + SongYUE2 다듬기 + Mastering-1 | 84.7 | 86.4 |
+
+최댓값은 구간 하나의 고점에 크게 의존했다. 11구간 + Top-3 평균은 인간 원곡과 AI 원곡을 분리하면서 단일 이상치 영향을 줄여 기본값으로 채택했다. 다만 LANDR과 SongYUE2 후처리의 순서가 예상과 달랐으므로 이 설정을 authorship 보정값으로 확정하지 않고 E0002·E0003 및 다양한 인간 원곡에서 재검증한다.
+
+추가로 `DetectorValueRequest`에 ArtifactNet `levelNormalize` 필드를 보강해 UI에서 변경한 값이 API에서 버려지지 않도록 했고, 전체 회귀 테스트 67개가 통과했다.

@@ -1,4 +1,6 @@
 import math
+
+import pytest
 from pathlib import Path
 
 from probe.file_analysis import _combine, _score, expand_inputs
@@ -90,14 +92,31 @@ def test_weighted_geometric_uses_only_the_relative_weights() -> None:
 
     single, _c, _t, detail = _score(results, {"method": "weightedGeometric", "weights": {"sonics": 0, "lofcz": 1}})
 
-    assert detail["weights"] == {"sonics": 0.0, "lofcz": 1.0}
+    assert detail["weights"] == {"lofcz": 1.0}
     assert single == 50.0
 
 
-def test_all_zero_weights_fall_back_to_the_plain_mean() -> None:
+def test_all_zero_weights_do_not_silently_change_the_combination_method() -> None:
     values = [0.2, 0.6]
 
-    assert _combine(values, ["a", "b"], "weightedGeometric", {"a": 0, "b": 0}) == 0.4
+    with pytest.raises(ValueError, match="가중치"):
+        _combine(values, ["a", "b"], "weightedGeometric", {"a": 0, "b": 0})
+
+
+def test_zero_weight_detector_is_excluded_from_score_and_confidence() -> None:
+    results = [
+        {"name": "sonics", "score": 0.9, "includedInTotal": True},
+        {"name": "lofcz", "score": 0.0, "includedInTotal": True},
+    ]
+
+    total, confidence, _conclusion, detail = _score(
+        results, {"method": "weightedGeometric", "weights": {"sonics": 1, "lofcz": 0}}
+    )
+
+    assert total == 90.0
+    assert confidence == 80.0
+    assert detail["included"] == ["sonics"]
+    assert detail["excluded"] == ["lofcz"]
 
 
 def test_median_combination_ignores_a_single_outlier() -> None:

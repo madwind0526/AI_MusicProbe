@@ -125,9 +125,9 @@ DETECTOR_SCHEMA: dict[str, dict[str, Any]] = {
             _choice("analysisPosition", "분석 위치", "", "start", ["start", "even"], EFFECT_SCORE,
                     "곡 앞부분은 한 번에 판정하고, 곡 전체 고르기는 같은 길이로 나눠 고르게 판정합니다.",
                     ["곡 앞부분 (기본)", "곡 전체 고르게"]),
-            _choice("aggregation", "구간 집계", "", "full", ["full", "median"], EFFECT_SCORE,
-                    "한 번에 판정은 지정 길이를 통째로 보고, 구간 중앙값은 나눈 구간 점수의 중앙값을 씁니다.",
-                    ["한 번에 판정 (기본)", "구간 중앙값"]),
+            _choice("aggregation", "구간 집계", "", "mean", ["mean", "median"], EFFECT_SCORE,
+                    "곡 앞부분 모드에서는 한 구간만 사용하므로 이 값이 결과를 바꾸지 않습니다. 곡 전체 고르기에서는 평균 또는 중앙값으로 합칩니다.",
+                    ["구간 평균 (기본)", "구간 중앙값"]),
             _number("threshold", "판정 임계값", "", 0.5, EFFECT_VERDICT,
                     "이 값 이상이면 AI 우세로 표시합니다. Total 계산에는 사용하지 않습니다."),
         ],
@@ -141,20 +141,29 @@ DETECTOR_SCHEMA: dict[str, dict[str, Any]] = {
         ],
         "lockedNote": "공개 모델 카드 규격입니다. 내부 네트워크나 fine-tuning 설정은 열 수 없습니다.",
         "options": [
-            _choice("segmentCount", "구간 수", "개", 7, [5, 7, 11], EFFECT_SCORE,
-                    "곡에서 4초 구간을 몇 개 뽑을지 정합니다. 7개는 공식 값입니다.",
-                    ["5개", "7개 (공식)", "11개"]),
+            _choice("segmentCount", "구간 수", "개", 11, [5, 7, 11], EFFECT_SCORE,
+                    "곡에서 4초 구간을 몇 개 뽑을지 정합니다. 공식 값은 7개이며 현재 기본값은 비교 실험에서 선택한 11개입니다.",
+                    ["5개", "7개 (공식)", "11개 (기본)"]),
             _choice("segmentSelection", "구간 선택", "", "even", ["even", "start"], EFFECT_SCORE,
                     "곡 전체 고르기는 곡 전체에 고르게, 처음부터는 앞에서부터 차례대로 뽑습니다.",
                     ["곡 전체에 고르게 (공식)", "처음부터"]),
-            _choice("aggregation", "구간 집계", "", "median", ["median", "mean", "top3", "max"], EFFECT_SCORE,
-                    "중앙값이 공식 값입니다. 다른 집계는 실험용이며 E0001/E0002 기준군에서 방향성이 고쳐지지 않았습니다.",
-                    ["중앙값 (공식)", "평균", "상위 3개 평균", "최댓값"]),
+            _choice("aggregation", "구간 집계", "", "top3", ["median", "mean", "top3", "max"], EFFECT_SCORE,
+                    "공식 값은 중앙값이며 현재 기본값은 11구간 비교에서 단일 이상치 영향을 줄인 상위 3개 평균입니다.",
+                    ["중앙값 (공식)", "평균", "상위 3개 평균 (기본)", "최댓값"]),
             _choice("minValidSegments", "최소 유효 구간", "개", 4, [3, 4], EFFECT_SCORE,
                     "이 개수보다 유효 점수가 적으면 총점 계산에서 제외됩니다.",
                     ["3개", "4개 (공식)"]),
             _number("threshold", "판정 임계값", "", 0.5, EFFECT_VERDICT,
                     "이 값 이상이면 AI 우세로 표시합니다. Total 계산에는 사용하지 않습니다."),
+            {
+                "key": "levelNormalize",
+                "type": "toggle",
+                "label": "입력 음량 정규화 (실험)",
+                "unit": "",
+                "default": False,
+                "effect": EFFECT_SCORE,
+                "hint": "켜면 구간 RMS를 맞춰 NaN을 줄일 수 있지만 공식 v9.4 입력과 달라집니다. 기본값은 끄기입니다.",
+            },
         ],
     },
     "attribution": {
@@ -167,13 +176,13 @@ DETECTOR_SCHEMA: dict[str, dict[str, Any]] = {
     },
 }
 
-#: ArtifactNet returns 0.0022-0.11 on tracks the other two call clearly AI, so
-#: including it by default drags every Total down. It stays evaluation-only
-#: until the directionality issue is resolved on a wider paired corpus.
+#: ArtifactNet is included in the selected experimental default so every new
+#: installation uses the same three-detector protocol as the current project.
+#: Its provisional direction must still be validated on a wider paired corpus.
 DEFAULT_INCLUDED = {
     "sonics": True,
     "lofcz": True,
-    "artifactnet": False,
+    "artifactnet": True,
     "attribution": True,
 }
 
@@ -234,6 +243,8 @@ def _normalize_detector(name: str, raw: Any) -> dict[str, Any]:
             result[option["key"]] = _coerce_choice(value, option, option["default"])
         elif option["type"] == "number":
             result[option["key"]] = _clamp_number(value, option, option["default"])
+        elif option["type"] == "toggle":
+            result[option["key"]] = bool(value)
     return result
 
 
@@ -273,6 +284,22 @@ def normalize(data: Any) -> dict[str, Any]:
     }
 
 
+def merge(current_data: Any, patch: Any) -> dict[str, Any]:
+    """Merge a partial API payload without resetting unrelated saved values."""
+    result = normalize(current_data)
+    source = patch if isinstance(patch, dict) else {}
+    detector_patch = source.get("detectors")
+    if isinstance(detector_patch, dict):
+        for name, values in detector_patch.items():
+            if name not in result["detectors"] or not isinstance(values, dict):
+                continue
+            result["detectors"][name].update({key: value for key, value in values.items() if value is not None})
+    ensemble_patch = source.get("ensemble")
+    if isinstance(ensemble_patch, dict):
+        result["ensemble"].update({key: value for key, value in ensemble_patch.items() if value is not None})
+    return normalize(result)
+
+
 def load() -> dict[str, Any]:
     if not OPTIONS_PATH.is_file():
         return normalize(None)
@@ -284,6 +311,14 @@ def load() -> dict[str, Any]:
 
 def save(data: Any) -> dict[str, Any]:
     settings = normalize(data)
+    if settings["ensemble"]["method"] == "weightedGeometric":
+        weights = settings["ensemble"]["weights"]
+        included = [
+            name for name, values in settings["detectors"].items()
+            if values.get("includedInTotal", True)
+        ]
+        if included and not any(float(weights.get(name, 1.0)) > 0 for name in included):
+            raise ValueError("가중 기하평균은 Total에 반영할 탐지기 중 하나 이상의 가중치가 0보다 커야 합니다.")
     temporary = OPTIONS_PATH.with_suffix(".tmp")
     temporary.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(OPTIONS_PATH)
@@ -371,6 +406,7 @@ __all__ = [
     "for_detector",
     "included_in_total",
     "load",
+    "merge",
     "normalize",
     "option_labels",
     "save",

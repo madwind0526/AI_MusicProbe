@@ -108,3 +108,9 @@ Score bands can be represented with CSS classes and a `--score-color` variable s
 - Adapters read live values through `detector_options.for_detector(name)` instead of taking arguments, so adding a knob never changes a detector signature or a caller.
 - `analyze_file` snapshots `current()` into the result as `detectorSettings` and `scoreInfo.components` records `method`, `inputs`, `included`, `excluded`, `weights`, `agreement`. Without the snapshot, a score cannot be explained after the fact.
 - Keep detector option values in their own `detector-options.json` rather than the general `settings.json`: the general file holds UI preferences, this one holds analysis semantics, and they change for different reasons.
+
+## Independent two-audio comparison module
+
+- 다른 프로젝트의 비교 UI를 이식할 때 원본 프로젝트를 런타임 의존성으로 두지 않고, 전용 JS/CSS 모듈과 현재 서버의 media/peaks/spectrogram API로 연결한다.
+- 두 오디오의 전환 재생은 현재 초 단위 위치를 공유하고 각 파일 길이로 clamp한다. 파형과 스펙트로그램의 playhead 비율은 각 파일 길이로 따로 계산한다.
+- built-in 탐색기는 비교 슬롯 식별자를 전달해 한 파일만 선택하도록 제한하며 기존 다중 파일 분석 선택은 그대로 유지한다.

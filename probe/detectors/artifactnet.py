@@ -28,6 +28,29 @@ AGGREGATION_LABELS = {
     "max": "segment max",
 }
 
+# The released graph is not level-invariant. On near-full-scale material it
+# returns NaN (a hot 44.1 kHz master lost 4 of 7 segments), and its raw output
+# otherwise tracks absolute level rather than timbre: white noise at RMS 1e-1
+# scores 0.98 while the same noise at 1e-4 scores 0.02. Each segment is
+# therefore level-normalised before inference so the detector cannot reward or
+# crash on mastering level. Measured across the four comparison tracks, RMS
+# normalisation is the only variant that yields zero NaN segments.
+MODEL_RMS_TARGET = 0.1
+MODEL_PEAK_CEILING = 0.99
+
+
+def _level_normalise(chunk: np.ndarray) -> np.ndarray:
+    """Scale a segment to a fixed RMS, backing off if that would exceed full scale."""
+    data = chunk.astype(np.float32, copy=False)
+    rms = float(np.sqrt(np.mean(np.square(data.astype(np.float64)))))
+    peak = float(np.max(np.abs(data))) if data.size else 0.0
+    if not np.isfinite(rms) or rms <= 0 or peak <= 0:
+        return data
+    gain = MODEL_RMS_TARGET / rms
+    if peak * gain > MODEL_PEAK_CEILING:
+        gain = MODEL_PEAK_CEILING / peak
+    return (data * gain).astype(np.float32)
+
 
 def _resample(audio: Audio) -> np.ndarray:
     mono = audio.mono().astype(np.float32, copy=False)
@@ -82,6 +105,7 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
     aggregation = str(options["aggregation"])
     min_valid = int(options["minValidSegments"])
     threshold = float(options["threshold"])
+    level_normalize = bool(options["levelNormalize"])
 
     mono = _resample(audio)
     if mono.size == 0:
@@ -94,7 +118,8 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         valid_samples = chunk.size
         if valid_samples < SEGMENT_SAMPLES:
             chunk = np.pad(chunk, (0, SEGMENT_SAMPLES - valid_samples))
-        score = _predict(chunk, model_path)
+        model_input = _level_normalise(chunk) if level_normalize else chunk
+        score = _predict(model_input, model_path)
         segment = {
             "startSeconds": round(start / SAMPLE_RATE, 3),
             "endSeconds": round(min((start + valid_samples) / SAMPLE_RATE, audio.duration_s), 3),
@@ -126,6 +151,7 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
             "aggregation": aggregation,
             "minValidSegments": min_valid,
             "threshold": threshold,
+            "levelNormalize": level_normalize,
         },
         "optionLabels": option_labels("artifactnet"),
         "validSegmentCount": int(values.size),

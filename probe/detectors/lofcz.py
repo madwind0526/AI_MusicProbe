@@ -110,7 +110,7 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         raise ValueError("분석할 오디오 샘플이 없습니다.")
 
     analysis_window = max_duration_s * SAMPLE_RATE
-    full_score = _predict(mono[:analysis_window], model_path)
+    full_score: float | None = None
 
     # `start` scores one window from the beginning, so the song-level number is
     # that single score. `even` scores spaced windows across the whole track and
@@ -132,6 +132,8 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
                 "endS": round(end / SAMPLE_RATE, 2),
                 "score": round(score, 4),
             })
+    else:
+        full_score = _predict(mono[:analysis_window], model_path)
 
     if even_scores:
         values = np.asarray(even_scores, dtype=float)
@@ -139,7 +141,7 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         aggregation_label = "even window median" if aggregation == "median" else "even window mean"
     else:
         values = None
-        track_score = full_score
+        track_score = float(full_score)
         aggregation_label = "single window score"
 
     window = SEGMENT_DURATION_S * SAMPLE_RATE
@@ -164,7 +166,6 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         "segmentMean": round(float(segment_values.mean()), 4),
         "segmentMax": round(float(segment_values.max()), 4),
         "segmentMin": round(float(segment_values.min()), 4),
-        "windowScore": round(full_score, 4),
         "threshold": threshold,
         "verdict": "AI 우세" if track_score >= threshold else "인간 우세",
         "options": {
@@ -178,6 +179,8 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         "modelVersion": "lofcz-ai-music-detector-v1",
         "notes": "신경 vocoder의 1~8kHz 주파수 흔적을 측정합니다.",
     }
+    if full_score is not None:
+        result["windowScore"] = round(full_score, 4)
     if values is not None:
         result["evenWindowCount"] = int(values.size)
         result["evenWindowMean"] = round(float(values.mean()), 4)

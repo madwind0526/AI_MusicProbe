@@ -16,19 +16,32 @@ VISUAL_DIR = SCRATCH_DIR / "visuals"
 
 
 def waveform_peaks(raw_path: str, count: int = 180) -> dict:
-    """Return a compact peak envelope for a SongYUE-style bar waveform."""
+    """Return a compact loudness envelope for a SongYUE-style bar waveform.
+
+    Each bar is the RMS of its slice rather than the slice's absolute maximum.
+    A per-slice max reports the loudest instant in the slice, so on a dense,
+    heavily mastered human track almost every slice lands near full scale; after
+    normalising by the global max the shape is then a solid slab that reads as
+    the waveform overflowing its box. RMS keeps the envelope's dynamics, and the
+    result is still scaled so the tallest bar fills the view exactly.
+    """
     path = validate_audio_path(raw_path)
     audio = load(path)
-    mono = abs(audio.mono())
+    mono = audio.mono()
     if not len(mono):
-        return {"peaks": [], "duration": 0.0}
+        return {"peaks": [], "duration": 0.0, "sampleRate": audio.sample_rate, "metric": "rms"}
     count = max(40, min(400, int(count)))
     edges = np.linspace(0, len(mono), count + 1, dtype=int)
-    peaks = [float(mono[edges[index]:edges[index + 1]].max()) for index in range(count)]
-    scale = max(peaks) or 1.0
+    envelope = []
+    for index in range(count):
+        chunk = mono[edges[index]:edges[index + 1]]
+        envelope.append(float(np.sqrt(np.mean(np.square(chunk)) if len(chunk) else 0.0)))
+    scale = max(envelope) or 1.0
     return {
-        "peaks": [round(value / scale, 4) for value in peaks],
+        "peaks": [round(value / scale, 4) for value in envelope],
         "duration": round(audio.duration_s, 3),
+        "sampleRate": audio.sample_rate,
+        "metric": "rms",
     }
 
 

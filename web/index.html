@@ -5,20 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI Music Probe</title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/audio-compare.css" />
 </head>
 <body>
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="brand"><span class="brand-mark">◢</span><span>AI Music <b>Probe</b><small>음원 생성 흔적 분석</small></span></div>
+    <button type="button" class="brand" data-page="analyze" aria-label="AI Music Probe — 음원 분석 열기"><span class="brand-mark">◢</span><span>AI Music <b>Probe</b><small>음원 생성 흔적 분석</small></span></button>
     <nav>
       <span class="nav-caption">WORKSPACE</span>
-      <button class="nav-item active" data-page="analyze">⌁ <span>음원 분석</span></button>
-      <button class="nav-item" data-page="reports">▤ <span>리포트</span></button>
+      <button class="nav-item active" data-page="analyze"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>음원 분석</span></button>
+      <button class="nav-item" data-page="history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg><span>분석 이력</span><em id="history-count" title="저장된 분석 결과 수">0</em></button>
+      <button class="nav-item" data-page="reports"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg><span>리포트</span></button>
+      <div class="sidebar-subhead"><span>최근 작업 이력</span><button type="button" id="recent-refresh" title="최근 이력 새로고침" aria-label="최근 이력 새로고침"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
+      <div class="recent-list" id="recent-list"></div>
     </nav>
+    <button type="button" class="nav-item sidebar-compare" id="audio-compare-open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M8 21H3v-5M21 3l-7 7M3 21l7-7M14 14l7 7M3 3l7 7"/></svg><span>음원 비교</span></button>
     <nav class="sidebar-bottom" aria-label="관리 메뉴">
-      <button class="nav-item" data-page="detectors">▦ <span>탐지기</span><em id="detector-count" title="활성/설치/전체 탐지기 수">0/0/0</em></button>
-      <button class="nav-item" data-page="settings">⌘ <span>설정</span></button>
-      <a class="nav-item" href="https://github.com/madwind0526/AI_MusicProbe" target="_blank" rel="noopener noreferrer">? <span>도움말</span></a>
+      <button class="nav-item" data-page="detectors"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17.5h7M17.5 14v7"/></svg><span>탐지기</span><em id="detector-count" title="활성/설치/전체 탐지기 수">0/0/0</em></button>
+      <div class="detector-rail" id="detector-rail"></div>
+      <button class="nav-item" data-page="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>설정</span></button>
+      <a class="nav-item" href="https://github.com/madwind0526/AI_MusicProbe" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.8-3 2.8"/><path d="M12 17h.01"/></svg><span>도움말</span></a>
     </nav>
     <div class="local-status"><strong><i id="health-dot"></i> 로컬 분석 서버</strong><p id="health-text">확인 중…</p></div>
     <p class="privacy">선택한 음원은 이 PC의 분석 서버에서 처리됩니다.</p>
@@ -47,26 +53,10 @@
         </div>
         <div class="composer-footer"><button class="run-button" id="run-button">분석 시작</button><p>여러 파일도 결과는 파일별로 각각 표시됩니다.</p></div>
       </div>
-      <div class="workspace history-workspace">
-        <div class="history-heading"><div><span class="eyebrow">ANALYSIS HISTORY</span><h2>분석 이력</h2><p id="result-summary">저장된 분석 결과를 불러오는 중입니다.</p></div>
-        <div class="history-toolbar" role="group" aria-label="분석 이력 새로고침, 정렬과 필터">
-          <button type="button" id="refresh-history" title="새로고침" aria-label="새로고침"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
-          <i class="toolbar-separator" aria-hidden="true"></i>
-          <button type="button" class="active" data-history-sort="newest" title="최신 분석순" aria-label="최신 분석순" aria-pressed="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></button>
-          <button type="button" data-history-sort="oldest" title="오래된 분석순" aria-label="오래된 분석순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2-5.3L4 9"/><path d="M4 4v5h5M12 7v5l3 2"/></svg></button>
-          <button type="button" data-history-sort="favorite" title="좋아요 우선" aria-label="좋아요 우선" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg></button>
-          <button type="button" data-history-sort="score-desc" title="점수 높은순" aria-label="점수 높은순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 4v16m-3-3 3 3 3-3M14 7h6M14 12h4M14 17h2"/></svg></button>
-          <button type="button" data-history-sort="score-asc" title="점수 낮은순" aria-label="점수 낮은순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 20V4m-3 3 3-3 3 3M14 7h2M14 12h4M14 17h6"/></svg></button>
-          <button type="button" data-history-sort="name-asc" title="제목 오름차순" aria-label="제목 오름차순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="m4 16 4-8 4 8M6 13h4M15 7h5l-5 10h5"/></svg></button>
-          <button type="button" data-history-sort="name-desc" title="제목 내림차순" aria-label="제목 내림차순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7h5L4 17h5m6-1 3-8 3 8m-5-3h4"/></svg></button>
-          <i class="toolbar-separator" aria-hidden="true"></i>
-          <button type="button" class="active" data-history-filter="all" title="전체 결과" aria-label="전체 결과" aria-pressed="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></button>
-          <button type="button" data-history-filter="completed" title="분석 완료만" aria-label="분석 완료만" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m8 12 3 3 5-6"/></svg></button>
-          <button type="button" data-history-filter="failed" title="분석 실패만" aria-label="분석 실패만" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m9 9 6 6m0-6-6 6"/></svg></button>
-        </div>
-        </div>
-        <div class="history-list" id="history-list"></div>
-      </div>
+      <div class="workspace" id="history-slot"></div>
+    </section>
+    <section class="page page-scroll" data-page-panel="history" hidden>
+      <div class="history-slot-standalone" id="history-slot-standalone"></div>
     </section>
     <section class="page page-scroll" data-page-panel="detectors" hidden>
       <div class="page-heading"><span class="eyebrow">DETECTORS</span><h1>탐지 모델</h1><p>서로 다른 음향 흔적을 보는 모델을 함께 사용합니다. 한 모델의 포화값만으로 결론을 내리지 않습니다.</p></div>
@@ -77,11 +67,21 @@
         </div>
         <p class="ensemble-hint" id="ensemble-hint"></p>
         <div class="weight-row" id="ensemble-weights" hidden></div>
+        <div class="ensemble-actions"><button type="button" class="soft-button" id="ensemble-save">결합 설정 저장</button></div>
       </section>
       <div class="model-grid" id="detector-grid"></div>
     </section>
     <section class="page page-scroll" data-page-panel="reports" hidden>
-      <div class="page-heading"><span class="eyebrow">REPORTS</span><h1>저장된 리포트</h1><p>API에서 저장한 JSON 리포트입니다.</p></div>
+      <div class="page-heading history-heading reports-heading"><div><span class="eyebrow">REPORTS</span><h1>저장된 리포트</h1><p>API에서 저장한 JSON 리포트입니다.</p></div><div class="history-toolbar" role="group" aria-label="리포트 새로고침과 정렬">
+        <button type="button" id="refresh-reports" title="새로고침" aria-label="새로고침"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+        <i class="toolbar-separator" aria-hidden="true"></i>
+        <button type="button" class="active" data-report-sort="newest" title="최신 생성순" aria-label="최신 생성순" aria-pressed="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></button>
+        <button type="button" data-report-sort="oldest" title="오래된 생성순" aria-label="오래된 생성순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2-5.3L4 9"/><path d="M4 4v5h5M12 7v5l3 2"/></svg></button>
+        <button type="button" data-report-sort="name-asc" title="제목 오름차순" aria-label="제목 오름차순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="m4 16 4-8 4 8M6 13h4M15 7h5l-5 10h5"/></svg></button>
+        <button type="button" data-report-sort="name-desc" title="제목 내림차순" aria-label="제목 내림차순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7h5L4 17h5m6-1 3-8 3 8m-5-3h4"/></svg></button>
+        <button type="button" data-report-sort="size-desc" title="용량 큰순" aria-label="용량 큰순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 4v16m-3-3 3 3 3-3M14 7h6M14 12h4M14 17h2"/></svg></button>
+        <button type="button" data-report-sort="size-asc" title="용량 작은순" aria-label="용량 작은순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 20V4m-3 3 3-3 3 3M14 7h2M14 12h4M14 17h6"/></svg></button>
+      </div></div>
       <div class="panel" id="report-list"></div>
     </section>
     <section class="page page-scroll" data-page-panel="settings" hidden>
@@ -100,6 +100,31 @@
     <header class="browser-header"><div><span class="eyebrow">ANALYSIS DETAIL</span><h2 id="result-dialog-title">측정 파라미터</h2></div><button type="button" class="browser-close" id="result-dialog-close" aria-label="상세 창 닫기">×</button></header>
     <div class="result-dialog-body" id="result-dialog-body"></div>
     <footer class="browser-footer"><p>각 측정값과 탐지기 결과는 파일별로 계산됩니다.</p><div><button type="button" class="browser-confirm" id="result-dialog-confirm">확인</button></div></footer>
+  </section>
+</div>
+<div class="browser-backdrop" id="audio-compare-dialog" hidden>
+  <section class="result-dialog audio-compare-dialog" role="dialog" aria-modal="true" aria-labelledby="audio-compare-title">
+    <header class="browser-header"><div><span class="eyebrow">AUDIO COMPARE</span><h2 id="audio-compare-title">음원 비교</h2><p>두 음원을 같은 위치에서 번갈아 들으며 파형과 스펙트로그램을 비교합니다.</p></div><button type="button" class="browser-close" id="audio-compare-close" aria-label="음원 비교 닫기">×</button></header>
+    <div class="audio-compare-body">
+      <div class="compare-file-row" id="compare-row-1">
+        <div class="audio-compare-toolbar"><button type="button" class="compare-row-play" data-compare-play="1" aria-label="음원-1 재생" disabled><svg viewBox="0 0 24 24"><path d="m9 6 10 6-10 6z"/></svg></button><button type="button" class="compare-load" data-compare-load="1" aria-label="음원-1 파일 불러오기" title="음원-1 파일 불러오기"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 8l5-5 5 5M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2"/></svg></button><span class="audio-compare-label"><strong>음원-1</strong><small id="compare-name-1">음원을 불러오세요</small></span><span class="compare-duration" id="compare-duration-1">0:00</span></div>
+        <div class="compare-waveform"><svg id="compare-waveform-1" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="음원-1 파형"><line class="waveform-loading" x1="0" x2="1000" y1="50" y2="50"/></svg></div>
+        <div class="compare-spectrogram" id="compare-spectrogram-1"></div><audio id="compare-audio-1" preload="metadata"></audio>
+      </div>
+      <div class="compare-file-row" id="compare-row-2">
+        <div class="audio-compare-toolbar"><button type="button" class="compare-row-play" data-compare-play="2" aria-label="음원-2 재생" disabled><svg viewBox="0 0 24 24"><path d="m9 6 10 6-10 6z"/></svg></button><button type="button" class="compare-load" data-compare-load="2" aria-label="음원-2 파일 불러오기" title="음원-2 파일 불러오기"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 8l5-5 5 5M5 21h14a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2"/></svg></button><span class="audio-compare-label"><strong>음원-2</strong><small id="compare-name-2">음원을 불러오세요</small></span><span class="compare-duration" id="compare-duration-2">0:00</span></div>
+        <div class="compare-waveform"><svg id="compare-waveform-2" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="음원-2 파형"><line class="waveform-loading" x1="0" x2="1000" y1="50" y2="50"/></svg></div>
+        <div class="compare-spectrogram" id="compare-spectrogram-2"></div><audio id="compare-audio-2" preload="metadata"></audio>
+      </div>
+      <section class="compare-diff-panel" id="compare-diff-panel" hidden aria-live="polite">
+        <div class="compare-diff-heading"><h3>실제로 바뀐 정도</h3><span id="compare-diff-note">두 음원의 소리 데이터를 비교한 변화입니다.</span></div>
+        <p class="compare-diff-description">음원-1을 기준으로 음원-2가 얼마나 달라졌는지 표시합니다. 양수는 커진 값, 음수는 작아진 값입니다.</p>
+        <div class="compare-diff-grid" id="compare-diff-grid"></div>
+        <p class="compare-diff-summary" id="compare-diff-summary"></p>
+      </section>
+      <div class="audio-seek compare-seek"><span id="compare-current">0:00</span><input id="compare-seek-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="비교 재생 위치" disabled><span id="compare-total">0:00</span></div>
+    </div>
+    <footer class="browser-footer compare-footer"><div class="audio-controls"><button type="button" data-compare-action="back" title="5초 뒤로" aria-label="5초 뒤로">&lt;&lt;</button><button type="button" class="audio-play" data-compare-action="play" title="재생" aria-label="재생"><svg viewBox="0 0 24 24"><path d="m9 6 10 6-10 6z"/></svg></button><button type="button" data-compare-action="forward" title="5초 앞으로" aria-label="5초 앞으로">&gt;&gt;</button><button type="button" class="audio-speed" data-compare-action="speed" title="재생 속도" aria-label="재생 속도">1x</button><span class="audio-volume-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></span><input class="audio-volume" id="compare-volume" type="range" min="0" max="2" step="0.1" value="1" aria-label="비교 볼륨"></div><div><button type="button" class="browser-confirm" id="audio-compare-confirm">닫기</button></div></footer>
   </section>
 </div>
 <div class="browser-backdrop" id="browser-dialog" hidden>
@@ -136,6 +161,7 @@
   </section>
 </div>
 <div class="toast" id="toast" hidden></div>
+<script src="/audio-compare.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

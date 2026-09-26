@@ -286,8 +286,16 @@ def to_json(report: dict, indent: int = 2) -> str:
 def save(report: dict, path: str | Path) -> Path:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(to_json(report), encoding="utf-8")
-    return out
+    candidate = out
+    index = 0
+    while True:
+        try:
+            with candidate.open("x", encoding="utf-8") as stream:
+                stream.write(to_json(report))
+            return candidate
+        except FileExistsError:
+            index += 1
+            candidate = out.with_name(f"{out.stem} ({index}){out.suffix}")
 
 
 __all__ = ["analyze", "flatten_numbers", "save", "to_json", "with_chain_flags"]

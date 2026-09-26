@@ -3,12 +3,12 @@ import pytest
 from probe import detector_options as options
 
 
-def test_defaults_evaluate_artifactnet_but_score_the_other_two() -> None:
+def test_defaults_include_all_three_installed_detectors() -> None:
     defaults = options.default_options()
 
     assert defaults["sonics"]["includedInTotal"] is True
     assert defaults["lofcz"]["includedInTotal"] is True
-    assert defaults["artifactnet"]["includedInTotal"] is False
+    assert defaults["artifactnet"]["includedInTotal"] is True
 
 
 def test_defaults_match_the_locked_model_specs() -> None:
@@ -20,10 +20,12 @@ def test_defaults_match_the_locked_model_specs() -> None:
     assert defaults["sonics"]["topK"] == 3
     assert defaults["lofcz"]["maxDurationS"] == 300
     assert defaults["lofcz"]["analysisPosition"] == "start"
-    assert defaults["artifactnet"]["segmentCount"] == 7
+    assert defaults["lofcz"]["aggregation"] == "mean"
+    assert defaults["artifactnet"]["segmentCount"] == 11
     assert defaults["artifactnet"]["segmentSelection"] == "even"
-    assert defaults["artifactnet"]["aggregation"] == "median"
+    assert defaults["artifactnet"]["aggregation"] == "top3"
     assert defaults["artifactnet"]["minValidSegments"] == 4
+    assert defaults["artifactnet"]["levelNormalize"] is False
 
 
 def test_unknown_keys_and_values_fall_back_to_defaults() -> None:
@@ -55,7 +57,7 @@ def test_partial_payload_keeps_the_other_defaults() -> None:
     result = options.normalize({"detectors": {"artifactnet": {"includedInTotal": True}}})
 
     assert result["detectors"]["artifactnet"]["includedInTotal"] is True
-    assert result["detectors"]["artifactnet"]["segmentCount"] == 7
+    assert result["detectors"]["artifactnet"]["segmentCount"] == 11
     assert result["detectors"]["sonics"]["includedInTotal"] is True
 
 
@@ -87,6 +89,16 @@ def test_api_request_dump_round_trips_through_normalize() -> None:
     assert result["detectors"]["lofcz"]["includedInTotal"] is True
 
 
+def test_api_request_keeps_artifactnet_level_normalize() -> None:
+    from probe.app import DetectorOptionsRequest
+
+    payload = DetectorOptionsRequest(
+        detectors={"artifactnet": {"levelNormalize": True}},
+    ).model_dump(exclude_unset=True)
+
+    assert payload["detectors"]["artifactnet"]["levelNormalize"] is True
+
+
 def test_describe_exposes_locked_values_and_choice_labels() -> None:
     described = options.describe()
     artifactnet = next(item for item in described["detectors"] if item["name"] == "artifactnet")
@@ -95,6 +107,8 @@ def test_describe_exposes_locked_values_and_choice_labels() -> None:
     assert any(item["value"] == "44,100 Hz" for item in artifactnet["locked"])
     assert artifactnet["lockedNote"]
     assert aggregation["choices"][0] == {"value": "median", "label": "중앙값 (공식)"}
+    assert aggregation["default"] == "top3"
+    assert aggregation["choices"][2] == {"value": "top3", "label": "상위 3개 평균 (기본)"}
     assert {method["value"] for method in described["ensemble"]["methods"]} == {
         "geometric", "arithmetic", "median", "weightedGeometric",
     }
@@ -136,3 +150,40 @@ def test_corrupt_file_falls_back_to_defaults(tmp_path, monkeypatch) -> None:
 @pytest.mark.parametrize("method", ["geometric", "arithmetic", "median", "weightedGeometric"])
 def test_every_advertised_method_is_accepted(method: str) -> None:
     assert options.normalize({"ensemble": {"method": method}})["ensemble"]["method"] == method
+
+
+def test_partial_merge_preserves_unrelated_saved_detector_values() -> None:
+    current = options.normalize({
+        "detectors": {
+            "artifactnet": {"includedInTotal": True, "segmentCount": 11},
+            "lofcz": {"maxDurationS": 60},
+        },
+        "ensemble": {"method": "median", "weights": {"sonics": 2}},
+    })
+
+    merged = options.merge(current, {"detectors": {"sonics": {"topK": 1}}})
+
+    assert merged["detectors"]["sonics"]["topK"] == 1
+    assert merged["detectors"]["artifactnet"]["includedInTotal"] is True
+    assert merged["detectors"]["artifactnet"]["segmentCount"] == 11
+    assert merged["detectors"]["lofcz"]["maxDurationS"] == 60
+    assert merged["ensemble"] == current["ensemble"]
+
+
+def test_save_rejects_all_zero_weights_for_included_detectors(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "detector-options.json"
+    monkeypatch.setattr(options, "OPTIONS_PATH", target)
+
+    with pytest.raises(ValueError, match="하나 이상의 가중치"):
+        options.save({
+            "detectors": {
+                name: {"includedInTotal": name != "attribution"}
+                for name in options.DETECTOR_SCHEMA
+            },
+            "ensemble": {
+                "method": "weightedGeometric",
+                "weights": {"sonics": 0, "lofcz": 0, "artifactnet": 0, "attribution": 0},
+            },
+        })
+
+    assert not target.exists()

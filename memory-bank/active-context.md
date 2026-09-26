@@ -2,17 +2,16 @@
 
 ## Current Focus
 
-- 다음 작업: paired corpus와 hold-out corpus에서 탐지기별 옵션 조합 비교.
-- 탐지 분석 옵션 구현 완료: 카드 옆 톱니바퀴 팝업 + 탐지기 페이지 상단 결합 방식 스트립.
-- 설정은 `detector-options.json`에 저장, 다음 분석부터 적용. git ignore 대상.
-- 결합 방식 4가지: 기하평균(기본), 산술평균, 중앙값, 가중 기하평균.
-- ArtifactNet 기본 `평가만`. 원점수 자릿수가 작아 기하평균에서 대조군까지 누락시키는 문제 때문.
-- 모델 고정값(샘플레이트·FFT·주파수 대역)은 `locked`로 팝업에 읽기 전용 표시.
-- 분석 리포트에 `detectorSettings` 스냅샷과 `scoreInfo.components`(included/excluded/weights) 기록.
-- 기본값 회귀 재검증 완료: E0001 94.0/85.4/89.6, E0002 99.6/99.4/99.5, E0003 78.4/76.7/71.5, 인간 대조군 0.1.
-- 테스트 55개 통과. `pytest` + compileall + `node --check` + API smoke test 확인.
-- 남은 UI 검증: 실제 브라우저에서 팝업 열기·저장·다음 분석 반영 확인.
-- `gh` 미설치. Git push는 자격 증명으로 정상 동작.
+- ArtifactNet 기본값을 `11구간/even/Top-3/정규화 끔`으로 적용하고 설정 파일·README·progress·revision·todo를 동기화.
+- 음원 비교 팝업에 두 파일의 대역별 dB 변화량과 RMS·peak·True peak 요약 패널을 복원하고 API·DOM 검증.
+- E0001 4개 기준 음원을 `5구간+최댓값`과 `11구간+Top-3`로 각각 배치 분석하고 설정별 리포트 저장.
+- `11구간+Top-3`는 인간 0.0, AI 원곡 91.3, LANDR 74.5, SongYUE2 다듬기+Mastering-1 86.4.
+- 현재 비교에서는 `11구간+Top-3`를 ArtifactNet의 우선 실험 후보로 판단하되 후처리 상대 순서는 추가 기준곡으로 검증 필요.
+- E0001-1 AI 원곡의 ArtifactNet 옵션 전 조합을 분할 실험하고 2개 탐지기 Total 94.0과 비교.
+- 가장 가까운 조합은 5구간·곡 전체 고르기·최댓값·정규화 끄기이며 실제 API Total 93.2로 재현.
+- 최댓값 조합은 단일 고점 구간에 의존하므로 E0002/E0003·인간 원곡 교차 검증 전 기본값으로 채택하지 않음.
+- ArtifactNet `levelNormalize`가 API 요청 모델에서 누락되어 UI 값이 버려지던 문제를 수정하고 회귀 테스트 추가.
+- 탐지기 설정 팝업의 모델 고정값 라벨과 값을 Y축 중앙 정렬하고 ArtifactNet 화면에서 확인.
 
 <!--
 규칙:
