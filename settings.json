@@ -1,0 +1,27 @@
+{
+  "scoreBands": {
+    "thresholds": [
+      20,
+      50,
+      80,
+      90
+    ],
+    "colors": [
+      "#ffffff",
+      "#8ec5ff",
+      "#ffe07a",
+      "#ffad66",
+      "#ff78c8"
+    ]
+  },
+  "historyLimit": 100,
+  "recursiveFolders": true,
+  "historyCardSize": 250,
+  "variableHistoryCards": true,
+  "paths": {
+    "music": "C:\\Claude\\ai-music-probe\\music",
+    "reports": "C:\\Claude\\ai-music-probe\\reports",
+    "models": "C:\\Claude\\ai-music-probe\\models"
+  },
+  "waveformPeaks": 180
+}

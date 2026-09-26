@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Music Probe</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">◢</span><span>AI Music <b>Probe</b><small>음원 생성 흔적 분석</small></span></div>
+    <nav>
+      <span class="nav-caption">WORKSPACE</span>
+      <button class="nav-item active" data-page="analyze">⌁ <span>음원 분석</span></button>
+      <button class="nav-item" data-page="reports">▤ <span>리포트</span></button>
+    </nav>
+    <nav class="sidebar-bottom" aria-label="관리 메뉴">
+      <button class="nav-item" data-page="detectors">▦ <span>탐지기</span><em id="detector-count" title="활성/설치/전체 탐지기 수">0/0/0</em></button>
+      <button class="nav-item" data-page="settings">⌘ <span>설정</span></button>
+      <a class="nav-item" href="https://github.com/madwind0526/AI_MusicProbe" target="_blank" rel="noopener noreferrer">? <span>도움말</span></a>
+    </nav>
+    <div class="local-status"><strong><i id="health-dot"></i> 로컬 분석 서버</strong><p id="health-text">확인 중…</p></div>
+    <p class="privacy">선택한 음원은 이 PC의 분석 서버에서 처리됩니다.</p>
+  </aside>
+  <main>
+    <header class="topbar">
+      <div class="resource-context"><span class="gpu-context"><b aria-hidden="true">▣</b><span id="gpu-name">GPU 확인 중</span></span><span id="page-title" hidden>음원 분석</span><span id="breadcrumb" hidden>Analyze</span></div>
+      <div class="topbar-right"><div id="top-status"></div><div class="resource-usage" id="resource-usage" aria-label="시스템 자원 사용량"></div></div>
+    </header>
+    <section class="analysis-layout page" data-page-panel="analyze">
+      <div class="composer">
+        <div class="composer-scroll">
+          <span class="eyebrow">FILE ANALYSIS</span><h1>음원을 선택하세요</h1>
+          <p class="lead">각 파일을 독립적으로 분석해 0–100 점수와 탐지기별 근거를 반환합니다. 점수는 확률이나 고정 등급이 아닙니다.</p>
+          <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="분석할 음원 파일 추가">
+            <div class="drop-icon">＋</div><strong>파일을 끌어 놓으세요</strong>
+            <span>WAV, FLAC, MP3, M4A, AAC, OGG, OPUS, AIFF</span>
+            <div class="pick-actions"><button type="button" id="pick-files">파일 선택</button><button type="button" id="pick-folder">폴더 선택</button></div>
+          </div>
+          <div class="section-head"><label>선택된 음원</label><button id="clear-files" class="text-button">모두 지우기</button></div>
+          <div class="file-list" id="file-list"><p class="empty-text">선택된 파일이 없습니다.</p></div>
+          <div class="divider"><span>또는 로컬 경로</span></div>
+          <label class="field-label" for="path-input">파일 또는 폴더 경로</label>
+          <textarea id="path-input" rows="3" spellcheck="false" placeholder="한 줄에 하나씩 입력하세요.&#10;C:\Music\song.wav&#10;C:\Music\album"></textarea>
+          <p class="hint">폴더를 입력하면 하위 폴더의 지원 음원을 모두 찾습니다.</p>
+        </div>
+        <div class="composer-footer"><button class="run-button" id="run-button">분석 시작</button><p>여러 파일도 결과는 파일별로 각각 표시됩니다.</p></div>
+      </div>
+      <div class="workspace history-workspace">
+        <div class="history-heading"><div><span class="eyebrow">ANALYSIS HISTORY</span><h2>분석 이력</h2><p id="result-summary">저장된 분석 결과를 불러오는 중입니다.</p></div>
+        <div class="history-toolbar" role="group" aria-label="분석 이력 새로고침, 정렬과 필터">
+          <button type="button" id="refresh-history" title="새로고침" aria-label="새로고침"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+          <i class="toolbar-separator" aria-hidden="true"></i>
+          <button type="button" class="active" data-history-sort="newest" title="최신 분석순" aria-label="최신 분석순" aria-pressed="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></button>
+          <button type="button" data-history-sort="oldest" title="오래된 분석순" aria-label="오래된 분석순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2-5.3L4 9"/><path d="M4 4v5h5M12 7v5l3 2"/></svg></button>
+          <button type="button" data-history-sort="favorite" title="좋아요 우선" aria-label="좋아요 우선" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg></button>
+          <button type="button" data-history-sort="score-desc" title="점수 높은순" aria-label="점수 높은순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 4v16m-3-3 3 3 3-3M14 7h6M14 12h4M14 17h2"/></svg></button>
+          <button type="button" data-history-sort="score-asc" title="점수 낮은순" aria-label="점수 낮은순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 20V4m-3 3 3-3 3 3M14 7h2M14 12h4M14 17h6"/></svg></button>
+          <button type="button" data-history-sort="name-asc" title="제목 오름차순" aria-label="제목 오름차순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="m4 16 4-8 4 8M6 13h4M15 7h5l-5 10h5"/></svg></button>
+          <button type="button" data-history-sort="name-desc" title="제목 내림차순" aria-label="제목 내림차순" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 7h5L4 17h5m6-1 3-8 3 8m-5-3h4"/></svg></button>
+          <i class="toolbar-separator" aria-hidden="true"></i>
+          <button type="button" class="active" data-history-filter="all" title="전체 결과" aria-label="전체 결과" aria-pressed="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></button>
+          <button type="button" data-history-filter="completed" title="분석 완료만" aria-label="분석 완료만" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m8 12 3 3 5-6"/></svg></button>
+          <button type="button" data-history-filter="failed" title="분석 실패만" aria-label="분석 실패만" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m9 9 6 6m0-6-6 6"/></svg></button>
+        </div>
+        </div>
+        <div class="history-list" id="history-list"></div>
+      </div>
+    </section>
+    <section class="page page-scroll" data-page-panel="detectors" hidden>
+      <div class="page-heading"><span class="eyebrow">DETECTORS</span><h1>탐지 모델</h1><p>서로 다른 음향 흔적을 보는 모델을 함께 사용합니다. 한 모델의 포화값만으로 결론을 내리지 않습니다.</p></div>
+      <div class="model-grid" id="detector-grid"></div>
+    </section>
+    <section class="page page-scroll" data-page-panel="reports" hidden>
+      <div class="page-heading"><span class="eyebrow">REPORTS</span><h1>저장된 리포트</h1><p>API에서 저장한 JSON 리포트입니다.</p></div>
+      <div class="panel" id="report-list"></div>
+    </section>
+    <section class="page page-scroll" data-page-panel="settings" hidden>
+      <div class="page-heading"><span class="eyebrow">SETTINGS</span><h1>설정</h1><p>분석 화면과 로컬 저장 위치를 설정합니다.</p></div>
+      <form class="settings-form" id="settings-form">
+        <section class="panel settings-panel"><h3>점수 색상 구간</h3><p>네 경계값과 다섯 구간의 표시 색상을 지정합니다.</p><div class="score-band-settings"><label><span>첫 경계</span><input type="number" id="score-threshold-0" min="1" max="96"></label><label><span>두 번째</span><input type="number" id="score-threshold-1" min="2" max="97"></label><label><span>세 번째</span><input type="number" id="score-threshold-2" min="3" max="98"></label><label><span>네 번째</span><input type="number" id="score-threshold-3" min="4" max="99"></label></div><div class="score-color-settings"><label><span>1구간</span><input type="color" id="score-color-0"></label><label><span>2구간</span><input type="color" id="score-color-1"></label><label><span>3구간</span><input type="color" id="score-color-2"></label><label><span>4구간</span><input type="color" id="score-color-3"></label><label><span>5구간</span><input type="color" id="score-color-4"></label></div></section>
+        <section class="panel settings-panel"><h3>분석과 이력</h3><div class="settings-row"><label for="history-limit"><span>분석 이력 보관 개수</span><small>0은 제한 없이 모두 보관합니다.</small></label><input type="number" id="history-limit" min="0" max="100000" step="1"></div><div class="settings-row"><label for="recursive-folders"><span>하위 폴더 포함</span><small>폴더 분석 시 하위 폴더의 음원도 찾습니다.</small></label><input type="checkbox" id="recursive-folders"></div><div class="settings-row"><label for="history-card-size"><span>분석 이력 카드 크기</span><small>카드 내부 스타일은 유지하고 바깥 정사각형 크기만 지정합니다. 200–360px</small></label><input type="number" id="history-card-size" min="200" max="360" step="10"></div><div class="settings-row"><label for="history-card-mode"><span>카드 크기 방식</span><small>고정은 지정 크기를 유지하고, 가변은 지정값을 최소 크기로 사용합니다.</small></label><select id="history-card-mode"><option value="fixed">고정 크기</option><option value="variable">가변 크기</option></select></div><div class="settings-row"><label for="waveform-peaks"><span>파형 밀도</span><small>상세 화면의 파형 막대 수입니다.</small></label><select id="waveform-peaks"><option value="120">간단 · 120개</option><option value="180">표준 · 180개</option><option value="300">정밀 · 300개</option></select></div></section>
+        <section class="panel settings-panel"><h3>기본 폴더</h3><div class="path-setting"><label for="settings-music-path">음악 찾기 시작 폴더</label><div><input id="settings-music-path" readonly><button type="button" data-settings-folder="music">찾아보기</button></div></div><div class="path-setting"><label for="settings-reports-path">리포트 저장 폴더</label><div><input id="settings-reports-path" readonly><button type="button" data-settings-folder="reports">찾아보기</button></div></div><div class="path-setting"><label for="settings-models-path">모델 저장 폴더</label><div><input id="settings-models-path" readonly><button type="button" data-settings-folder="models">찾아보기</button></div><small>모델 폴더 변경은 서버를 다시 시작한 뒤 적용됩니다.</small></div></section>
+        <div class="settings-actions"><button type="submit" class="browser-confirm">설정 저장</button></div>
+      </form>
+    </section>
+  </main>
+</div>
+<div class="browser-backdrop" id="result-dialog" hidden>
+  <section class="result-dialog" role="dialog" aria-modal="true" aria-labelledby="result-dialog-title">
+    <header class="browser-header"><div><span class="eyebrow">ANALYSIS DETAIL</span><h2 id="result-dialog-title">측정 파라미터</h2></div><button type="button" class="browser-close" id="result-dialog-close" aria-label="상세 창 닫기">×</button></header>
+    <div class="result-dialog-body" id="result-dialog-body"></div>
+    <footer class="browser-footer"><p>각 측정값과 탐지기 결과는 파일별로 계산됩니다.</p><div><button type="button" class="browser-confirm" id="result-dialog-confirm">확인</button></div></footer>
+  </section>
+</div>
+<div class="browser-backdrop" id="browser-dialog" hidden>
+  <section class="browser-dialog" role="dialog" aria-modal="true" aria-labelledby="browser-title">
+    <header class="browser-header">
+      <div><span class="eyebrow">LOCAL EXPLORER</span><h2 id="browser-title">파일 선택</h2><p id="browser-description"></p></div>
+      <button type="button" class="browser-close" id="browser-close" aria-label="탐색기 닫기">×</button>
+    </header>
+    <div class="browser-toolbar">
+      <button type="button" class="soft-button" id="browser-up">↑ 상위</button>
+      <div class="browser-path" id="browser-path" title="현재 경로"></div>
+    </div>
+    <div class="browser-current" id="browser-current" hidden>
+      <button type="button" id="select-current-folder"><span>◈</span><strong>현재 폴더 선택</strong><small id="current-folder-name"></small></button>
+    </div>
+    <div class="browser-list" id="browser-list" role="listbox"></div>
+    <footer class="browser-footer">
+      <p id="browser-selection">선택된 파일이 없습니다.</p>
+      <div><button type="button" class="soft-button" id="browser-cancel">취소</button><button type="button" class="browser-confirm" id="browser-confirm">선택 완료</button></div>
+    </footer>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>
+
+

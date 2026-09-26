@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+scratch/
+input_human/
+reports/*.json
+reports/history/
+!reports/.gitkeep
+models/*
+!models/.gitkeep
+corpus/*
+!corpus/.gitkeep
