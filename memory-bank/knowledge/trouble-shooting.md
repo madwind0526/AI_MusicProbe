@@ -303,3 +303,23 @@ When a fixed endpoint such as `/api/audio/peaks` is declared after `/api/audio/{
 - 재계산은 `scratch/evaluate_anchor_corpus.py`의 로직을 그대로 재사용하되, `analyze_batch`(HTTP POST `/api/analyze/progress`, `save: true`)를 쓰지 않고 `probe.file_analysis.analyze_files`를 직접 호출해서 수행했다. 이유: HTTP 경로는 결과를 `save_history()`로 실제 분석 이력에 적재하고, `historyLimit`을 넘기면 오래된 항목을 디스크에서 지운다. 사용자의 실 이력을 건드리지 않고 `scratch/evaluations/anchor-corpus-evaluation.json`만 갱신하려면 저장 없는 직접 호출 경로를 써야 한다.
 - 총점 계산 로직이나 detector-options 기본값이 바뀌면 README의 anchor 표·`scratch/evaluations/*.json`이 곧바로 stale해진다. 다음에 또 바뀌면 같은 방식(직접 `analyze_files` 호출 + `evaluate_anchor_corpus`의 통계 함수 재사용)으로 재생성할 것.
 - 인간 hard negative와 낮은 점수의 AI 외부 표본이 추가된 뒤 다시 적합해야 한다.
+
+## 저장 데이터 재계산과 오디오 지표의 방어적 처리 (2026-09-27)
+
+- 과거 Total 재계산은 의도적으로 실 JSON을 갱신하는 관리 작업이다. 직접 `write_text` 대신 같은 폴더의 임시 파일을 flush/fsync한 뒤 `replace`하고, 실행 전 `--dry-run`으로 변경 건수를 확인한다.
+- 각 결과의 `detectorSettings.ensemble.weights`를 보존하지 않으면 가중 기하평균 재계산이 당시 설정과 달라진다. 결합 방식만 교체하고 저장 가중치는 결과별로 유지한다.
+- True Peak는 선형 보간으로 인터샘플 피크를 만들 수 없다. polyphase 4배 oversampling을 사용하고 표본 peak보다 낮아지지 않도록 원래 peak와 최댓값을 취한다.
+- BS.1770 다채널 합산은 모든 채널에 1.41을 적용하면 안 된다. L/R/C는 1.0, LFE는 0, surround만 1.41을 사용한다.
+- 비동기 UI 요청은 선택이 바뀐 뒤 예전 응답이 도착할 수 있다. 요청 순번과 현재 경로를 함께 검사한 뒤 DOM을 갱신한다.
+
+## Scratch 파일은 저장 결과의 참조를 기준으로 정리 (2026-09-27)
+
+- 브라우저 업로드 원본을 분석 직후 무조건 삭제하면 이력 상세 보기의 오디오 재생이 깨진다. `reports/*.json`과 `reports/history/*.json`의 `results[].file`을 참조 집합으로 사용한다.
+- 앱 시작, 분석 이력 저장·트림, 이력/리포트 삭제 뒤에 참조되지 않는 `scratch/uploads` 파일을 삭제한다. 새 업로드를 받기 전 정리는 진행 중 요청과 충돌하지 않도록 1시간 유예한다.
+- 비주얼 캐시는 참조 음원의 현재 `path+mtime+kind` 해시를 다시 계산해 해당 PNG만 보존한다. 음원 수정, 이력 삭제로 더 이상 도달할 수 없는 캐시는 자동 제거된다.
+
+## 정밀 단위 테스트가 있어도 프로덕션 호출 경로를 별도로 검증 (2026-09-27)
+
+- `integrated_loudness()`는 BS.1770 절대 기준 테스트를 통과했지만 `dsp.analyze()`에서 호출되지 않아 실제 API에는 LUFS가 없었다.
+- 계산 모듈 테스트와 별도로 최종 조립 함수가 응답 계약 키를 포함하는지 검사한다. 이 프로젝트는 `dsp.analyze(audio)["levels"]`에 `integratedLufs`, `truePeakDbtp`, `crestDb`가 실제 값으로 들어오는 테스트를 둔다.
+- 내부 계산 이름(`lufsIntegrated`)과 UI 계약 이름(`integratedLufs`)이 다르면 프로덕션 경계에서 명시적으로 변환하고, UI는 과거 저장 리포트를 위한 fallback을 유지한다.

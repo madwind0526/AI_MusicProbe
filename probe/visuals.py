@@ -15,6 +15,11 @@ from .config import SCRATCH_DIR
 VISUAL_DIR = SCRATCH_DIR / "visuals"
 
 
+def visual_cache_path(path: Path, kind: str, visual_dir: Path = VISUAL_DIR) -> Path:
+    identity = f"{path}|{path.stat().st_mtime_ns}|{kind}".encode("utf-8")
+    return visual_dir / f"{hashlib.sha256(identity).hexdigest()}.png"
+
+
 def waveform_peaks(raw_path: str, count: int = 180) -> dict:
     """Return a compact loudness envelope for a SongYUE-style bar waveform.
 
@@ -60,8 +65,7 @@ def render_audio_visual(raw_path: str, kind: str) -> Path:
     if not ffmpeg:
         raise ValueError("FFmpeg를 찾지 못해 시각화를 만들 수 없습니다.")
 
-    identity = f"{path}|{path.stat().st_mtime_ns}|{kind}".encode("utf-8")
-    target = VISUAL_DIR / f"{hashlib.sha256(identity).hexdigest()}.png"
+    target = visual_cache_path(path, kind)
     if target.is_file():
         return target
     VISUAL_DIR.mkdir(parents=True, exist_ok=True)

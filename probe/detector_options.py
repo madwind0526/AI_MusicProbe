@@ -195,8 +195,10 @@ DEFAULT_INCLUDED = {
     "sonics": True,
     "lofcz": True,
     "artifactnet": True,
-    "attribution": True,
+    "attribution": False,
 }
+
+IMPLEMENTED_DETECTORS = {"sonics", "lofcz", "artifactnet"}
 
 DEFAULT_ENSEMBLE: dict[str, Any] = {"method": "robustMean", "weights": {}}
 
@@ -240,9 +242,9 @@ def _coerce_choice(value: Any, option: dict[str, Any], fallback: Any) -> Any:
     return fallback
 
 
-def _normalize_detector(name: str, raw: Any) -> dict[str, Any]:
+def _normalize_detector(name: str, raw: Any, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
     spec = DETECTOR_SCHEMA[name]
-    result = _default_detector_values(name)
+    result = dict(fallback) if isinstance(fallback, dict) else _default_detector_values(name)
     if not isinstance(raw, dict):
         return result
     if raw.get("includedInTotal") is not None:
@@ -252,9 +254,9 @@ def _normalize_detector(name: str, raw: Any) -> dict[str, Any]:
         if value is None:
             continue
         if option["type"] == "choice":
-            result[option["key"]] = _coerce_choice(value, option, option["default"])
+            result[option["key"]] = _coerce_choice(value, option, result.get(option["key"], option["default"]))
         elif option["type"] == "number":
-            result[option["key"]] = _clamp_number(value, option, option["default"])
+            result[option["key"]] = _clamp_number(value, option, result.get(option["key"], option["default"]))
         elif option["type"] == "toggle":
             result[option["key"]] = bool(value)
     return result
@@ -305,11 +307,19 @@ def merge(current_data: Any, patch: Any) -> dict[str, Any]:
         for name, values in detector_patch.items():
             if name not in result["detectors"] or not isinstance(values, dict):
                 continue
-            result["detectors"][name].update({key: value for key, value in values.items() if value is not None})
+            result["detectors"][name] = _normalize_detector(name, values, result["detectors"][name])
     ensemble_patch = source.get("ensemble")
     if isinstance(ensemble_patch, dict):
-        result["ensemble"].update({key: value for key, value in ensemble_patch.items() if value is not None})
-    return normalize(result)
+        method = ensemble_patch.get("method")
+        valid_methods = {name for name, _label in ENSEMBLE_METHODS}
+        if method in valid_methods:
+            result["ensemble"]["method"] = method
+        weight_patch = ensemble_patch.get("weights")
+        if isinstance(weight_patch, dict):
+            merged_weights = dict(result["ensemble"]["weights"])
+            merged_weights.update(_normalize_weights(weight_patch))
+            result["ensemble"]["weights"] = merged_weights
+    return result
 
 
 def load() -> dict[str, Any]:
@@ -327,7 +337,7 @@ def save(data: Any) -> dict[str, Any]:
         weights = settings["ensemble"]["weights"]
         included = [
             name for name, values in settings["detectors"].items()
-            if values.get("includedInTotal", True)
+            if name in IMPLEMENTED_DETECTORS and values.get("includedInTotal", True)
         ]
         if included and not any(float(weights.get(name, 1.0)) > 0 for name in included):
             raise ValueError("가중 기하평균은 Total에 반영할 탐지기 중 하나 이상의 가중치가 0보다 커야 합니다.")

@@ -2,17 +2,16 @@
 
 ## Current Focus
 
-- `web/favicon.ico` 추가로 정적 마운트 404 제거.
-- SONICS 구간 집계 선택지에 `중앙값 (기본)` 표시 추가([probe/detector_options.py:113](../probe/detector_options.py)).
-- ensemble method 기본값 `robustMean`(이상치 제외 평균) 확정 후 90곡 anchor 코퍼스를 `analyze_files` 직접 호출로 재계산(실 분석 이력은 안 건드림).
-- 재계산 결과: 인간 원곡 최댓값 26.6, AI 최솟값 43.2(간격 6.6→16.6), 50점 임계값 balanced accuracy 71.7%→88.3%.
-- `_robust_mean`은 버그 아님 확인: n=3에서 median이 항상 가운데 값이라, 낮은 값이 median에 더 가까우면 오히려 높은 값이 이상치 후보가 됨(K0062: 0.0/20.8/99.8 → 아무도 제외 안 됨). 사용자 확인 후 임계값 변경 없이 현행 유지 결정.
-- README `90곡 anchor 교차 검증` 표·요약, `scratch/evaluations/anchor-corpus-evaluation.json`·`.csv` 갱신 완료.
-- 인간 원곡 쪽에도 20점대 오탐 후보(예: George Michael - Outside 26.6)가 새로 나타나 개별 확인 필요로 기록.
-- 90곡 기준 평가는 인간 원본 30 / 동일 곡 Mastering-1 30 / AI 원본 E·J·K 각 10으로 구성, 후처리 AI 음원은 제외.
-- isotonic 보정은 5-fold balanced accuracy 99%대지만 여전히 레벨 2개로 붕괴해 런타임 미적용 유지.
-- 다음 검증 대상: 20점대로 오른 인간 오탐 후보 개별 확인, 43.2 미만 AI 외부 표본 확충.
-- `errors_report.md`의 미해결 버그 E-1~E-8(특히 E-1 업로드 파일명 매핑, 높음)을 `todo.md` `## 알려진 버그`로 옮김. 아직 코드 수정은 안 함 — 다음 세션 착수 대상.
+- `codereview.md`의 높은 중요도 15건을 수정하고, `recompute_totals.py`의 의도된 덮어쓰기에 dry-run·검증·가중치 보존·원자 저장을 적용함.
+- 이력 경로 이탈 차단, history 원자 저장, True Peak·BS.1770·MAD=0 계산을 수정함.
+- ArtifactNet 중복 구간, 0 가중치 우회, 업로드 이름 순서, 설정 부분 갱신 문제를 수정함.
+- 외부 도구 timeout, 손상 리포트 400 응답, 프론트의 중복·오래된 요청 차단을 적용함.
+- 테스트의 ignored `scratch/` 의존을 `probe/evaluation.py`로 이동함.
+- 앱 시작·분석 저장·이력/리포트 삭제 시 저장 결과에서 참조하지 않는 scratch 업로드와 비주얼 캐시를 정리함.
+- 참조 중인 업로드 원본은 이력 상세 재생을 위해 유지하고, 중단된 새 업로드는 다음 요청에서 1시간 유예 후 정리함.
+- BS.1770 loudness 모듈을 실제 DSP `levels`에 연결하고 UI 키 `integratedLufs`·`truePeakDbtp`·`crestDb`를 통일함.
+- 실제 음원에서 LUFS-I -12.97, True Peak 0.31 dBTP, Crest 15.6 dB, LRA 17.37 응답을 확인함.
+- 검증: 90 tests passed, compileall 및 JS 문법 검사 통과.
 
 <!--
 규칙:

@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.signal import resample_poly
 
 from .audioio import Audio
 from .config import (
@@ -35,6 +36,7 @@ from .config import (
     PEAK_VALLEY_WINDOW,
     TILT_BANDS,
 )
+from .loudness import crest_factor_db, integrated_loudness
 
 _EPS = 1e-12
 
@@ -454,11 +456,10 @@ def level_metrics(audio: Audio) -> dict[str, float | None]:
     peak = float(np.max(np.abs(x)))
     rms = float(np.sqrt(np.mean(x.astype(np.float64) ** 2)))
     dc = float(np.mean(x))
-    # A true-peak estimate needs 4x oversampling to catch inter-sample peaks;
-    # linear interpolation of the cubic Hermite polynomial is close enough for a
-    # relative comparison between stages.
+    # Polyphase oversampling can expose inter-sample peaks that linear
+    # interpolation cannot represent.
     oversampled = _interpolate_4x(x)
-    true_peak = float(np.max(np.abs(oversampled))) if oversampled.size else peak
+    true_peak = max(peak, float(np.max(np.abs(oversampled)))) if oversampled.size else peak
     return {
         "peakDbfs": round(_db(peak), 2),
         "rmsDbfs": round(_db(rms), 2),
@@ -467,12 +468,26 @@ def level_metrics(audio: Audio) -> dict[str, float | None]:
     }
 
 
+def level_profile(audio: Audio) -> dict[str, float | None]:
+    """Combine sample-level and BS.1770 measurements under API field names."""
+    levels = level_metrics(audio)
+    loudness = integrated_loudness(audio)
+    levels.update({
+        "integratedLufs": loudness["lufsIntegrated"],
+        "lra": loudness["lra"],
+        "loudnessRangePeak": loudness["loudnessRangePeak"],
+        "samplePeakDbfs": loudness["samplePeakDbfs"],
+        "truePeakDbtp": levels["truePeakDbfs"],
+        "crestDb": crest_factor_db(audio),
+    })
+    return levels
+
+
 def _interpolate_4x(x: np.ndarray) -> np.ndarray:
     if x.size < 4:
         return x
-    positions = np.arange(x.size - 1) * 4
-    grid = np.arange((x.size - 1) * 4, dtype=np.float64)
-    return np.interp(grid, positions, x[:-1].astype(np.float64))
+    oversampled = resample_poly(x.astype(np.float64), 4, 1, padtype="line")
+    return oversampled
 
 
 def _db(value: float) -> float:
@@ -530,7 +545,7 @@ def analyze(audio: Audio) -> dict:
         "transient": transient_metrics(spectrum),
         "noiseFloorDb": noise_floor_db(spectrum),
         "stereo": stereo_metrics(audio),
-        "levels": level_metrics(audio),
+        "levels": level_profile(audio),
     }
 
     if COMB_ENABLED:
@@ -547,6 +562,7 @@ __all__ = [
     "digital_null_hz",
     "energy_rolloff_hz",
     "log_spectrum_curve",
+    "level_profile",
     "magnitude_spectrum",
     "noise_floor_db",
     "spectral_comb",

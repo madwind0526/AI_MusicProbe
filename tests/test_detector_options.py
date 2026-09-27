@@ -187,3 +187,36 @@ def test_save_rejects_all_zero_weights_for_included_detectors(tmp_path, monkeypa
         })
 
     assert not target.exists()
+
+
+def test_all_zero_guard_ignores_unimplemented_attribution_default(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "detector-options.json"
+    monkeypatch.setattr(options, "OPTIONS_PATH", target)
+
+    with pytest.raises(ValueError, match="하나 이상의 가중치"):
+        options.save({
+            "detectors": {
+                name: {"includedInTotal": True}
+                for name in ("sonics", "lofcz", "artifactnet")
+            },
+            "ensemble": {
+                "method": "weightedGeometric",
+                "weights": {"sonics": 0, "lofcz": 0, "artifactnet": 0},
+            },
+        })
+
+
+def test_invalid_partial_patch_keeps_saved_values() -> None:
+    current = options.normalize({
+        "detectors": {"sonics": {"aggregation": "topk", "topK": 5}},
+        "ensemble": {"method": "median", "weights": {"sonics": 2}},
+    })
+
+    merged = options.merge(current, {
+        "detectors": {"sonics": {"aggregation": "invalid", "topK": "invalid"}},
+        "ensemble": {"method": "invalid", "weights": {"sonics": "invalid"}},
+    })
+
+    assert merged["detectors"]["sonics"]["aggregation"] == "topk"
+    assert merged["detectors"]["sonics"]["topK"] == 5
+    assert merged["ensemble"] == current["ensemble"]

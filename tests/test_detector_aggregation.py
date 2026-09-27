@@ -88,6 +88,13 @@ def test_artifactnet_start_selection_clamps_to_the_last_full_segment() -> None:
     assert starts == [index * SEGMENT_SAMPLES for index in range(5)]
 
 
+def test_artifactnet_start_selection_never_duplicates_the_tail() -> None:
+    starts = artifactnet_starts(5 * SEGMENT_SAMPLES, 11, "start")
+
+    assert starts == [index * SEGMENT_SAMPLES for index in range(5)]
+    assert len(starts) == len(set(starts))
+
+
 def test_artifactnet_median_is_the_documented_default() -> None:
     values = np.asarray([0.01, 0.2, 0.3, 0.4, 0.9])
 

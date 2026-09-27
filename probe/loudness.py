@@ -63,6 +63,19 @@ SURROUND_GAIN = 1.41
 _IR_TAPS = 4096
 
 
+def _channel_gains(channels: int) -> np.ndarray:
+    """Return BS.1770 gains for common channel orders, excluding LFE."""
+    gains = np.ones(channels, dtype=float)
+    if channels == 4:
+        gains[2:4] = SURROUND_GAIN
+    elif channels == 5:
+        gains[3:5] = SURROUND_GAIN
+    elif channels >= 6:
+        gains[3] = 0.0
+        gains[4:] = SURROUND_GAIN
+    return gains
+
+
 def _high_shelf(sample_rate: int) -> tuple[float, ...]:
     """RBJ high-shelf biquad, returned as (b0, b1, b2, a1, a2), a0 already 1.
 
@@ -166,8 +179,7 @@ def integrated_loudness(audio: Audio) -> dict[str, float | None]:
         return {"lufsIntegrated": None, "lra": None, "loudnessRangePeak": None, "samplePeakDbfs": None}
 
     channels = audio.samples.shape[1]
-    # Mono and stereo are 1.0; anything wider is treated as surround per the spec.
-    gains = np.full(channels, 1.0 if channels == 1 else (1.0 if channels == 2 else SURROUND_GAIN))
+    gains = _channel_gains(channels)
 
     weighted = k_weight(audio.samples, audio.sample_rate)
     powers = _block_powers(weighted, audio.sample_rate)

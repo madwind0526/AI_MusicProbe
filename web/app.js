@@ -4,6 +4,7 @@ const DEFAULT_SETTINGS = { scoreBands: { thresholds: [20, 50, 80, 90], colors: [
 const state = { files: [], localPaths: [], detectors: [], detectorOptions: null, history: [], reports: [], historySignature: '', analyzing: false, historySort: 'newest', historyFilter: 'all', reportSort: 'newest', settings: structuredClone(DEFAULT_SETTINGS), browser: { mode: 'files', listing: null, selectedFiles: new Set(), selectedFolder: null, settingsTarget: null, compareTarget: null } };
 const $ = (id) => document.getElementById(id);
 let audioCompare = null;
+let detailVisualRequest = 0;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
@@ -123,11 +124,13 @@ function renderBrowser() {
 
 function metricEntries(parameters) {
   const meta = parameters?.meta || {}, spectral = parameters?.spectral || {}, levels = parameters?.levels || {}, stereo = parameters?.stereo || {}, transient = parameters?.transient || {};
+  const integratedLufs = levels.integratedLufs ?? levels.lufsIntegrated;
+  const truePeakDbtp = levels.truePeakDbtp ?? levels.truePeakDbfs;
   return [
     ['재생 시간', meta.durationS == null ? '—' : `${meta.durationS.toFixed(1)}초`],
     ['코덱', meta.codec || '—'], ['샘플레이트', meta.sampleRate ? `${(meta.sampleRate / 1000).toFixed(1)} kHz` : '—'],
-    ['채널', meta.channels ?? '—'], ['LUFS-I', levels.integratedLufs == null ? '—' : `${levels.integratedLufs.toFixed(2)} LUFS`],
-    ['True Peak', levels.truePeakDbtp == null ? '—' : `${levels.truePeakDbtp.toFixed(2)} dBTP`], ['Crest', levels.crestDb == null ? '—' : `${levels.crestDb.toFixed(2)} dB`],
+    ['채널', meta.channels ?? '—'], ['LUFS-I', integratedLufs == null ? '—' : `${integratedLufs.toFixed(2)} LUFS`],
+    ['True Peak', truePeakDbtp == null ? '—' : `${truePeakDbtp.toFixed(2)} dBTP`], ['Crest', levels.crestDb == null ? '—' : `${levels.crestDb.toFixed(2)} dB`],
     ['Rolloff 99%', spectral.rolloff99Hz == null ? '—' : `${Math.round(spectral.rolloff99Hz)} Hz`], ['스펙트럼 기울기', spectral.tiltDbPerOctave == null ? '—' : `${spectral.tiltDbPerOctave.toFixed(3)} dB/oct`],
     ['스테레오 상관', stereo.correlation == null ? '—' : stereo.correlation.toFixed(3)], ['Onset', transient.onsetCount ?? '—'],
   ];
@@ -306,6 +309,7 @@ function scoreMethodNote(result) {
 }
 
 function openResult(result) {
+  const visualRequest = ++detailVisualRequest;
   const panel = $('result-dialog-body');
   $('result-dialog-title').textContent = result.name || '측정 파라미터';
   if (result.status !== 'completed') {
@@ -328,7 +332,7 @@ function openResult(result) {
       <section class="audio-visuals"><div class="audio-chart waveform-chart compare-waveform" id="waveform-chart"><svg id="detail-waveform-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="전체 음원 파형, 재생 위치 0%"><line class="waveform-loading" x1="0" x2="1000" y1="50" y2="50" /></svg></div><div class="compare-spectrogram"><div class="compare-frequency-axis">${frequencyAxisLabels(result.parameters?.meta?.sampleRate).map((label) => `<span>${label}</span>`).join('')}</div><div class="compare-spectrogram-body"><div class="audio-chart spectrogram-chart compare-spectrogram-plot"><img class="visual-base" src="/api/audio/spectrogram?${query}" alt="음원 스펙트로그램" loading="lazy"><div class="visual-played" id="spectrogram-played"><img src="/api/audio/spectrogram?${query}" alt="" loading="lazy"></div><div class="visual-playhead" id="spectrogram-playhead"></div></div><div class="compare-time-axis" id="compare-time-axis"><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span></div></div><div class="compare-db-axis"><span>0</span><i></i><span>-100</span><small>dBFS</small></div></div><audio id="detail-audio" preload="metadata" src="/api/media?${query}"></audio><div class="audio-seek"><span id="audio-current">0:00</span><input id="audio-seek-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="오디오 재생 위치"><span id="audio-duration">0:00</span></div><div class="audio-controls"><button type="button" data-audio-action="back" title="10초 뒤로" aria-label="10초 뒤로">&lt;&lt;</button><button type="button" class="audio-play" data-audio-action="play" title="재생" aria-label="재생"><svg viewBox="0 0 24 24"><path d="m9 6 10 6-10 6z"/></svg></button><button type="button" data-audio-action="forward" title="10초 앞으로" aria-label="10초 앞으로">&gt;&gt;</button><button type="button" class="audio-speed" data-audio-action="speed" title="재생 속도" aria-label="재생 속도">1x</button><span class="audio-volume-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></span><input class="audio-volume" id="audio-volume-slider" type="range" min="0" max="1" step="0.01" value="1" aria-label="볼륨"></div></section>
       <section class="detail-section"><h3>측정 파라미터</h3><div class="details-grid">${metrics}</div></section>
       <section class="detail-section"><h3>탐지기별 결과</h3><div class="detector-detail">${detectors || '<p class="empty-text">탐지 결과가 없습니다.</p>'}</div></section>`;
-    setupAudioControls(query);
+    setupAudioControls(query, visualRequest);
   }
   $('result-dialog').hidden = false;
   document.body.classList.add('dialog-open');
@@ -353,11 +357,12 @@ function updateVisualProgress(fraction) {
   }
 }
 
-async function loadWaveformPeaks(query) {
+async function loadWaveformPeaks(query, visualRequest) {
   try {
     const response = await fetch(`/api/audio/peaks?${query}&count=${state.settings.waveformPeaks}`);
     if (!response.ok) throw new Error('파형을 불러오지 못했습니다.');
     const payload = await response.json();
+    if (visualRequest !== detailVisualRequest) return;
     const svg = $('detail-waveform-svg');
     if (!svg) return;
     const peaks = payload.peaks || [];
@@ -366,11 +371,11 @@ async function loadWaveformPeaks(query) {
   } catch { /* The spectrogram remains available when peak extraction fails. */ }
 }
 
-function setupAudioControls(query) {
+function setupAudioControls(query, visualRequest) {
   const audio = $('detail-audio');
   const seek = $('audio-seek-slider');
   if (!audio || !seek) return;
-  void loadWaveformPeaks(query);
+  void loadWaveformPeaks(query, visualRequest);
   const formatTime = (seconds) => {
     if (!Number.isFinite(seconds)) return '0:00';
     const minutes = Math.floor(seconds / 60);
@@ -599,10 +604,13 @@ function resourceMetric(label, value, percent) {
   return `<span><b><em>${label}</em>${escapeHtml(value)}</b><i class="${level}" style="width:${Math.min(100, Math.max(0, percent))}%"></i></span>`;
 }
 
+let resourceRequestInFlight = false;
+
 async function loadResources() {
   // The top bar showing this is visible on every page, but the tab itself may not be
   // (minimized, backgrounded) - skip the request entirely rather than polling into the void.
-  if (document.visibilityState !== 'visible') return;
+  if (document.visibilityState !== 'visible' || resourceRequestInFlight) return;
+  resourceRequestInFlight = true;
   try {
     const data = await (await fetch('/api/resources')).json();
     const gpu = data.gpu;
@@ -611,6 +619,7 @@ async function loadResources() {
     const vramPercent = gpu?.totalMiB ? (gpu.usedMiB / gpu.totalMiB) * 100 : 0;
     $('resource-usage').innerHTML = resourceMetric('GPU', `${Math.round(gpu?.percent || 0)}%`, gpu?.percent || 0) + resourceMetric('VRAM', `${Math.round(vramPercent)}%`, vramPercent) + resourceMetric('CPU', `${Math.round(data.cpu.percent)}%`, data.cpu.percent) + resourceMetric('RAM', `${Math.round(data.memory.percent)}%`, data.memory.percent);
   } catch { $('gpu-name').textContent = 'GPU 확인 불가'; $('resource-usage').innerHTML = '<span class="resource-unavailable">자원 상태 확인 불가</span>'; }
+  finally { resourceRequestInFlight = false; }
 }
 
 async function toggleDetector(name, enabled) {
@@ -730,7 +739,8 @@ function collectEnsemble() {
 
 function validateEnsemble(ensemble) {
   if (ensemble.method !== 'weightedGeometric') return;
-  const included = (state.detectorOptions?.detectors || []).filter((item) => item.values?.includedInTotal !== false);
+  const available = new Set(state.detectors.filter((item) => item.available).map((item) => item.name));
+  const included = (state.detectorOptions?.detectors || []).filter((item) => available.has(item.name) && item.values?.includedInTotal !== false);
   if (included.length && !included.some((item) => Number(ensemble.weights?.[item.name] ?? 1) > 0)) {
     throw new Error('가중 기하평균은 Total에 반영할 탐지기 중 하나 이상의 가중치가 0보다 커야 합니다.');
   }

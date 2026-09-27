@@ -1,4 +1,4 @@
-from scratch.evaluate_anchor_corpus import fit_isotonic, grouped_five_fold, predict_isotonic
+from probe.evaluation import fit_isotonic, grouped_five_fold, predict_isotonic
 
 
 def test_isotonic_fit_is_monotonic_and_class_balanced() -> None:

@@ -19,6 +19,8 @@ from .config import AUDIO_EXTENSIONS
 
 _FFMPEG = shutil.which("ffmpeg")
 _FFPROBE = shutil.which("ffprobe")
+FFPROBE_TIMEOUT_S = 30
+FFMPEG_TIMEOUT_S = 1800
 
 
 class AudioToolError(RuntimeError):
@@ -62,25 +64,32 @@ def probe(path: str | Path) -> AudioMeta:
     if not file_path.is_file():
         raise AudioToolError(f"파일을 찾을 수 없습니다: {file_path}")
 
-    result = subprocess.run(
-        [
-            _FFPROBE, "-v", "error",
-            "-select_streams", "a:0",
-            "-show_entries", "stream=codec_name,sample_rate,channels,bits_per_raw_sample,bits_per_sample",
-            "-show_entries", "format=duration,bit_rate",
-            "-of", "json",
-            str(file_path),
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        result = subprocess.run(
+            [
+                _FFPROBE, "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name,sample_rate,channels,bits_per_raw_sample,bits_per_sample",
+                "-show_entries", "format=duration,bit_rate",
+                "-of", "json",
+                str(file_path),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=FFPROBE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AudioToolError(f"ffprobe 시간 초과 ({file_path.name})") from error
     if result.returncode != 0:
         detail = (result.stderr or "").strip().splitlines()
         raise AudioToolError(f"ffprobe 실패 ({file_path.name}): {detail[-1] if detail else '알 수 없는 오류'}")
 
-    payload = json.loads(result.stdout or "{}")
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as error:
+        raise AudioToolError(f"ffprobe 응답을 해석하지 못했습니다: {file_path.name}") from error
     streams = payload.get("streams") or []
     if not streams:
         raise AudioToolError(f"오디오 스트림이 없습니다: {file_path.name}")
@@ -123,15 +132,19 @@ def load(path: str | Path) -> Audio:
     if meta.sample_rate <= 0 or meta.channels <= 0:
         raise AudioToolError(f"샘플레이트/채널 정보를 읽을 수 없습니다: {file_path.name}")
 
-    result = subprocess.run(
-        [
-            _FFMPEG, "-v", "error", "-nostdin", "-i", str(file_path),
-            "-f", "f32le", "-acodec", "pcm_f32le",
-            "-ar", str(meta.sample_rate), "-ac", str(meta.channels),
-            "-",
-        ],
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                _FFMPEG, "-v", "error", "-nostdin", "-i", str(file_path),
+                "-f", "f32le", "-acodec", "pcm_f32le",
+                "-ar", str(meta.sample_rate), "-ac", str(meta.channels),
+                "-",
+            ],
+            capture_output=True,
+            timeout=FFMPEG_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise AudioToolError(f"오디오 디코딩 시간 초과 ({file_path.name})") from error
     if result.returncode != 0 or not result.stdout:
         detail = (result.stderr or b"").decode("utf-8", "replace").strip().splitlines()
         raise AudioToolError(f"디코딩 실패 ({file_path.name}): {detail[-1] if detail else '알 수 없는 오류'}")

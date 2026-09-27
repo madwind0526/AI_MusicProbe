@@ -9,7 +9,7 @@ import shutil
 import threading
 import csv
 import io
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path
@@ -40,6 +40,7 @@ from .file_analysis import analyze_files
 from .file_browser import browse_directory
 from .history import delete_history, load_history, save_history, set_favorite
 from .resources import resource_snapshot
+from .scratch_cleanup import cleanup_scratch
 from .stages import StageError, StageSet, from_map, load as load_stage_set
 from .visuals import render_audio_visual, validate_audio_path, waveform_peaks
 
@@ -49,7 +50,40 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 # without it the generator would block on the queue forever and leak a thread.
 _PROGRESS_IDLE_TIMEOUT = 1800.0
 
-app = FastAPI(title="ai-music-probe", version=__version__, docs_url="/api/docs", redoc_url=None)
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    try:
+        removed = cleanup_scratch(SCRATCH_DIR, REPORTS_DIR, grace_seconds=0.0)
+        if removed["uploads"] or removed["visuals"]:
+            logging.getLogger(__name__).info(
+                "Cleaned scratch files on startup: uploads=%d visuals=%d",
+                removed["uploads"],
+                removed["visuals"],
+            )
+    except OSError as error:
+        logging.getLogger(__name__).warning("Startup scratch cleanup failed: %s", error)
+    yield
+
+
+app = FastAPI(
+    title="ai-music-probe",
+    version=__version__,
+    docs_url="/api/docs",
+    redoc_url=None,
+    lifespan=_lifespan,
+)
+
+
+def _cleanup_scratch(grace_seconds: float = 3600.0) -> None:
+    try:
+        cleanup_scratch(SCRATCH_DIR, REPORTS_DIR, grace_seconds)
+    except OSError as error:
+        logging.getLogger(__name__).warning("Scratch cleanup failed: %s", error)
+
+
+def _save_history(payload: dict) -> None:
+    save_history(payload)
+    _cleanup_scratch(0.0)
 
 
 class AnalysisReservation(AbstractContextManager):
@@ -264,6 +298,7 @@ def update_app_settings(request: AppSettingsRequest) -> dict:
     history_module.REPORTS_DIR = REPORTS_DIR
     history_module.HISTORY_DIR = REPORTS_DIR / "history"
     history_module.trim_history(settings["historyLimit"])
+    _cleanup_scratch(0.0)
     return {
         "settings": settings,
         "restartRequired": previous["paths"]["models"] != settings["paths"]["models"],
@@ -301,6 +336,7 @@ def favorite_history(item_id: str, request: FavoriteRequest) -> dict:
 def remove_history(item_id: str) -> dict:
     if not delete_history(item_id):
         raise HTTPException(status_code=404, detail="분석 이력을 찾지 못했습니다.")
+    _cleanup_scratch(0.0)
     return {"deleted": True}
 
 
@@ -444,13 +480,14 @@ def analyze(request: FileAnalyzeRequest) -> dict:
         saved = _maybe_save(result, True, "file-analysis")
         if saved:
             result["savedTo"] = saved
-    save_history(result)
+    _save_history(result)
     return result
 
 
 async def _store_uploads(files: list[UploadFile]) -> tuple[list[Path], list[str]]:
     if not files:
         raise HTTPException(status_code=400, detail="분석할 음원 파일이 필요합니다.")
+    _cleanup_scratch()
     root = SCRATCH_DIR / "uploads"
     root.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
@@ -484,14 +521,26 @@ async def _store_uploads(files: list[UploadFile]) -> tuple[list[Path], list[str]
     return paths, original_names
 
 
+def _restore_upload_names(result: dict, paths: list[Path], original_names: list[str]) -> None:
+    names_by_path = {
+        str(path.resolve()).casefold(): original
+        for path, original in zip(paths, original_names)
+    }
+    for item in result.get("results", []):
+        if not isinstance(item, dict):
+            continue
+        key = str(Path(str(item.get("file") or "")).resolve()).casefold()
+        if key in names_by_path:
+            item["name"] = names_by_path[key]
+
+
 @app.post("/api/analyze/upload")
 async def analyze_upload(files: list[UploadFile] = File(...)) -> dict:
     paths, original_names = await _store_uploads(files)
     with _ANALYSIS_QUEUE.reserve():
         result = analyze_files(paths, recursive=False)
-    for item, original in zip(result["results"], original_names):
-        item["name"] = original
-    save_history(result)
+    _restore_upload_names(result, paths, original_names)
+    _save_history(result)
     return result
 
 
@@ -560,7 +609,7 @@ def analyze_progress(request: FileAnalyzeRequest) -> StreamingResponse:
             saved = _maybe_save(result, True, "file-analysis")
             if saved:
                 result["savedTo"] = saved
-        save_history(result)
+        _save_history(result)
         emit({"result": result})
 
     return _progress_response(run, _ANALYSIS_QUEUE.reserve())
@@ -577,9 +626,8 @@ async def analyze_upload_progress(files: list[UploadFile] = File(...)) -> Stream
             emit({"done": done, "total": total, "name": name})
 
         result = analyze_files(paths, recursive=False, on_progress=on_progress)
-        for item, original in zip(result["results"], original_names):
-            item["name"] = original
-        save_history(result)
+        _restore_upload_names(result, paths, original_names)
+        _save_history(result)
         emit({"result": result})
 
     return _progress_response(run, _ANALYSIS_QUEUE.reserve())
@@ -590,8 +638,17 @@ def list_reports() -> dict:
     if not REPORTS_DIR.is_dir():
         return {"reports": []}
     items = []
-    for file in sorted(REPORTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:100]:
-        stat = file.stat()
+    candidates = []
+    for file in REPORTS_DIR.glob("*.json"):
+        try:
+            candidates.append((file.stat().st_mtime, file))
+        except OSError:
+            continue
+    for _modified, file in sorted(candidates, key=lambda item: item[0], reverse=True)[:100]:
+        try:
+            stat = file.stat()
+        except OSError:
+            continue
         created_at = datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat()
         try:
             payload = json.loads(file.read_text(encoding="utf-8"))
@@ -664,7 +721,10 @@ def export_report(name: str, format: str = "json") -> Response:
 @app.get("/api/reports/{name}")
 def read_report(name: str) -> Any:
     path = _report_path(name)
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"리포트를 읽지 못했습니다: {exc}") from exc
 
 
 @app.delete("/api/reports/{name}")
@@ -674,6 +734,7 @@ def delete_report(name: str) -> dict:
         path.unlink()
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"리포트를 삭제하지 못했습니다: {exc}") from exc
+    _cleanup_scratch(0.0)
     return {"deleted": True, "name": name}
 
 

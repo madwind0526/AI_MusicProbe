@@ -3,6 +3,7 @@ import math
 import pytest
 from pathlib import Path
 
+from probe.dsp import _interpolate_4x
 from probe.file_analysis import _combine, _score, expand_inputs
 
 
@@ -188,3 +189,27 @@ def test_non_finite_detector_score_is_ignored() -> None:
     # A NaN used to clip to 1.0 and look like a saturated detector.
     assert detail["inputs"] == {"sonics": 0.8}
     assert total == 80.0
+
+
+def test_true_peak_oversampling_keeps_a_last_sample_peak() -> None:
+    samples = __import__("numpy").array([0.0, 0.1, 0.2, 0.9], dtype=float)
+
+    oversampled = _interpolate_4x(samples)
+
+    assert oversampled.size == samples.size * 4
+    assert max(abs(oversampled)) >= 0.9
+
+
+def test_robust_mean_drops_a_unique_value_when_mad_is_zero() -> None:
+    total, confidence, _conclusion, detail = _score(
+        [
+            {"name": "sonics", "score": 0.854},
+            {"name": "artifactnet", "score": 0.854},
+            {"name": "lofcz", "score": 0.0},
+        ],
+        {"method": "robustMean", "weights": {}},
+    )
+
+    assert total == 85.4
+    assert detail["outliersExcluded"] == ["lofcz"]
+    assert confidence > 70

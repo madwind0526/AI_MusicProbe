@@ -2,10 +2,10 @@
 
 ## Current Wave
 
-- **Wave:** 30
-- **Status:** Done — favicon 추가, SONICS `중앙값(기본)` 라벨, ensemble robustMean 확정 후 90곡 anchor 재계산·README 갱신
+- **Wave:** 33
+- **Status:** Done — BS.1770 loudness 프로덕션 배선과 UI 키 통일
 - **Cache Status:** CLEAN
-- **Last Checkpoint:** 2026-09-27 — `analyze_files` 직접 호출로 90곡 재분석(실 이력 미변경), anchor-corpus-evaluation.json/.csv·README 표 갱신 확인
+- **Last Checkpoint:** 2026-09-27 — 실제 음원 levels 확인, 90 tests passed, compileall·JS 문법 검사 통과
 
 ## Wave History
 
@@ -41,6 +41,9 @@
 | 28 | 설정의 1–5구간 제목과 범위 텍스트 중앙 정렬 | Done |
 | 29 | 구간 제목·첫 숫자 시작점 정렬, 왼쪽 작업 현황 Box와 yy/zz 상태 연결 | Done |
 | 30 | favicon 추가, SONICS `중앙값(기본)` 라벨, ensemble robustMean 확정 후 90곡 anchor 재계산·README 갱신 | Done |
+| 31 | 코드 리뷰: 경로 보안·측정 정확도·원자 저장·설정/업로드/프론트 경합 수정 | Done |
+| 32 | 앱 시작과 저장/삭제 후 참조되지 않는 scratch 업로드·비주얼 캐시 정리 | Done |
+| 33 | BS.1770 loudness 계산을 실제 DSP/API/UI에 연결 | Done |
 
 ## Session Notes
 

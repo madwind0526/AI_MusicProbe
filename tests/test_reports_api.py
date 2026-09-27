@@ -12,6 +12,7 @@ from probe import app
 
 def test_list_reports_includes_generated_time_and_delete(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(app, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(app, "SCRATCH_DIR", tmp_path / "scratch")
     target = tmp_path / "saved.json"
     target.write_text(json.dumps({"generatedAt": "2026-09-27T12:34:56+09:00"}), encoding="utf-8")
 
@@ -86,3 +87,26 @@ def test_upload_total_size_limit_removes_partial_files(tmp_path: Path, monkeypat
 
     assert error.value.status_code == 413
     assert list((tmp_path / "uploads").glob("*")) == []
+
+
+def test_restore_upload_names_uses_file_path_instead_of_result_order(tmp_path: Path) -> None:
+    first = tmp_path / "b-random.wav"
+    second = tmp_path / "a-random.wav"
+    result = {"results": [
+        {"file": str(second), "name": second.name},
+        {"file": str(first), "name": first.name},
+    ]}
+
+    app._restore_upload_names(result, [first, second], ["first.wav", "second.wav"])
+
+    assert [item["name"] for item in result["results"]] == ["second.wav", "first.wav"]
+
+
+def test_read_report_returns_client_error_for_invalid_json(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(app, "REPORTS_DIR", tmp_path)
+    (tmp_path / "broken.json").write_text("{broken", encoding="utf-8")
+
+    with pytest.raises(HTTPException) as error:
+        app.read_report("broken.json")
+
+    assert error.value.status_code == 400

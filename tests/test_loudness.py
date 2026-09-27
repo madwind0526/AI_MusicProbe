@@ -14,8 +14,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from probe import dsp
 from probe.audioio import Audio, AudioMeta
-from probe.loudness import _high_shelf, _highpass, crest_factor_db, integrated_loudness, k_weight
+from probe.loudness import _channel_gains, _high_shelf, _highpass, crest_factor_db, integrated_loudness, k_weight
+
+
+def test_bs1770_channel_gains_keep_front_channels_and_exclude_lfe() -> None:
+    assert _channel_gains(2).tolist() == [1.0, 1.0]
+    assert _channel_gains(5).tolist() == [1.0, 1.0, 1.0, 1.41, 1.41]
+    assert _channel_gains(6).tolist() == [1.0, 1.0, 1.0, 0.0, 1.41, 1.41]
 
 SR = 48000
 TOLERANCE = 0.3
@@ -48,6 +55,18 @@ def test_reference_sine_reads_minus_23_lufs():
     stereo = np.repeat(signal[:, None], 2, axis=1)
     result = integrated_loudness(_audio(stereo))
     assert result["lufsIntegrated"] == pytest.approx(-23.0, abs=TOLERANCE)
+
+
+def test_dsp_profile_wires_loudness_fields_to_the_api_levels() -> None:
+    amplitude = 10.0 ** (-23.0 / 20.0)
+    stereo = np.repeat(_sine(amplitude, 2.0)[:, None], 2, axis=1)
+
+    levels = dsp.analyze(_audio(stereo))["levels"]
+
+    assert levels["integratedLufs"] == pytest.approx(-23.0, abs=TOLERANCE)
+    assert levels["truePeakDbtp"] == levels["truePeakDbfs"]
+    assert levels["crestDb"] == pytest.approx(3.01, abs=0.1)
+    assert levels["lra"] is not None
 
 
 def test_reference_sine_scales_with_level():

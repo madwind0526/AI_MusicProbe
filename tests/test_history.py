@@ -145,3 +145,15 @@ def test_report_and_history_copies_of_same_run_are_shown_once(tmp_path: Path, mo
 
     assert len(items) == 1
     assert items[0].get("historyItemId")
+
+
+def test_delete_history_rejects_paths_outside_report_directories(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    outside = tmp_path.parent / "outside.json"
+    outside.write_text(json.dumps({"results": [{"name": "keep.wav"}]}), encoding="utf-8")
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+
+    assert history.delete_history("../outside:0") is False
+    assert outside.is_file()

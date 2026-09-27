@@ -76,7 +76,11 @@ def _robust_mean(values: np.ndarray, names: list[str]) -> tuple[float, list[str]
     median = float(np.median(values))
     mad = float(np.median(np.abs(values - median)))
     if mad == 0.0:
-        return float(np.mean(values)), []
+        keep = np.isclose(values, median, rtol=0.0, atol=1e-12)
+        if not bool(keep.any()) or bool(keep.all()):
+            return float(np.mean(values)), []
+        outliers = [name for name, kept in zip(names, keep) if not kept]
+        return float(np.mean(values[keep])), outliers
     z = 0.6745 * (values - median) / mad
     keep = np.abs(z) <= ROBUST_Z_THRESHOLD
     if not bool(keep.any()):
@@ -123,15 +127,19 @@ def _score(detector_results: list[dict], ensemble: dict | None = None) -> tuple[
         return None, 0.0, f"Total 반영 탐지기가 없어 점수를 계산하지 못했습니다. (평가만 또는 가중치 0: {excluded})", {}
 
     values = np.asarray([scores[name] for name in names], dtype=float)
-    # The geometric mean rewards corroboration and prevents one saturated
-    # detector from deciding the entire result. Corpus calibration follows later.
     outliers_excluded: list[str] = []
+    agreement_values = values
     if method == "robustMean":
         raw, outliers_excluded = _robust_mean(values, names)
+        if outliers_excluded:
+            agreement_values = np.asarray(
+                [value for name, value in zip(names, values) if name not in outliers_excluded],
+                dtype=float,
+            )
     else:
         raw = _combine(values, names, method, weights)
     total = round(raw * 100.0, 1)
-    agreement = 1.0 if values.size == 1 else max(0.0, 1.0 - float(np.std(values)) * 2.0)
+    agreement = 1.0 if agreement_values.size == 1 else max(0.0, 1.0 - float(np.std(agreement_values)) * 2.0)
     confidence = round(abs(raw - 0.5) * 2.0 * agreement * 100.0, 1)
     excluded = sorted(name for name in scores if name not in names)
     return total, confidence, _conclusion(total), {
@@ -203,7 +211,7 @@ def analyze_files(
             on_progress(index, len(files), path)
         try:
             results.append(analyze_file(path))
-        except (AudioToolError, ValueError, OSError) as error:
+        except Exception as error:  # noqa: BLE001
             results.append(
                 {
                     "file": str(path),

@@ -16,6 +16,8 @@
     let positionSeconds = 0;
     let playbackRate = 1;
     let volume = 1;
+    let comparisonRequest = 0;
+    const peakRequests = [0, 0];
 
     function audio(row) { return byId(`compare-audio-${row}`); }
     function activeAudio() { return activeRow ? audio(activeRow) : null; }
@@ -138,12 +140,18 @@
 
     async function loadComparison() {
       if (!slots[0].path || !slots[1].path) return;
-      const query = `source=${encodeURIComponent(slots[0].path)}&target=${encodeURIComponent(slots[1].path)}`;
+      const source = slots[0].path;
+      const target = slots[1].path;
+      const request = ++comparisonRequest;
+      const query = `source=${encodeURIComponent(source)}&target=${encodeURIComponent(target)}`;
       try {
         const response = await fetch(`/api/audio/compare?${query}`);
         if (!response.ok) throw new Error('변화량을 계산하지 못했습니다.');
-        renderComparison(await response.json());
+        const payload = await response.json();
+        if (request !== comparisonRequest || slots[0].path !== source || slots[1].path !== target) return;
+        renderComparison(payload);
       } catch (error) {
+        if (request !== comparisonRequest) return;
         const panel = byId('compare-diff-panel');
         if (panel) panel.hidden = true;
         options.toast(error.message);
@@ -151,10 +159,12 @@
     }
 
     async function loadPeaks(row, path) {
+      const request = ++peakRequests[row - 1];
       const query = `path=${encodeURIComponent(path)}`;
       const response = await fetch(`/api/audio/peaks?${query}&count=${options.getPeakCount()}`);
       if (!response.ok) throw new Error('파형을 불러오지 못했습니다.');
       const payload = await response.json();
+      if (request !== peakRequests[row - 1] || slots[row - 1].path !== path) return;
       slots[row - 1].sampleRate = payload.sampleRate || 48000;
       const peaks = payload.peaks || [];
       const svg = byId(`compare-waveform-${row}`);

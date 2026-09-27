@@ -254,3 +254,11 @@ ensemble method 기본값이 `robustMean`(이상치 제외 평균)으로 확정�
 이 과정에서 `_robust_mean`([probe/file_analysis.py](probe/file_analysis.py))이 n=3에서 median(가운데 값)을 기준으로 이상치를 거른다는 점을 재확인했다. 세 탐지기 점수가 서로 고르게 떨어져 있으면(예: SONICS 20.8 / lofcz 0.0 / ArtifactNet 99.8) 낮은 값이 오히려 median에 더 가까워 아무것도 제외되지 않을 수 있다 — 버그가 아니라 n=3 통계의 구조적 한계이며, 사용자 확인 후 임계값은 그대로 유지하기로 했다. 근거는 [trouble-shooting.md](memory-bank/knowledge/trouble-shooting.md) 참고.
 
 SONICS 구간 집계 선택지에는 `중앙값 (기본)` 표시를 추가했고, 정적 파일 마운트에 `web/favicon.ico`를 추가해 404를 없앴다. 목적을 다한 일회성 개발용 스크립트(`scratch/browser_*_check.py`, `flow_check.py`, `flow3_check.py`, `run_flows.py`, `grid_check.py`, `stability_check.py`, `cdp_client.py`)와 그 산출물을 정리했다.
+
+## 12. 코드 리뷰 높은 중요도 결함 수정
+
+이력 삭제 경로 검증, 원자 JSON 저장, True Peak 4배 polyphase oversampling, BS.1770 멀티채널 가중치, MAD=0 이상치 처리, ArtifactNet 중복 구간 제거, 실제 탐지기 기준 0 가중치 검증, 업로드 이름의 경로 기반 복원, 외부 도구 timeout, 설정 부분 갱신 보존, 프론트 요청 순서 보호를 반영했다. `recompute_totals.py`의 실데이터 덮어쓰기는 사용자 의도이므로 유지하되 dry-run·방식 검증·기존 가중치 보존·원자 저장을 적용했다. 전체 테스트는 87개가 통과했다.
+
+앱 시작 시 저장된 이력·리포트에서 참조하는 업로드 음원과 현재 파형·스펙트로그램 캐시 목록을 계산하고, 그 밖의 `scratch/uploads` 및 `scratch/visuals` 파일을 정리한다. 분석 저장과 이력·리포트 삭제 후에도 같은 정리를 수행하며, 새 업로드를 받기 전에는 1시간 유예를 두고 중단된 요청의 임시 파일을 정리한다. 참조 중인 업로드 원본은 상세 보기 재생을 위해 유지한다. 전체 테스트는 89개가 통과했다.
+
+BS.1770 구현이 단위 테스트에서만 호출되고 실제 `dsp.analyze()` 결과에는 연결되지 않았던 결함을 수정했다. `levels`는 이제 `integratedLufs`, `lra`, `loudnessRangePeak`, `samplePeakDbfs`, `truePeakDbtp`, `crestDb`를 포함한다. UI는 새 키를 사용하며 기존 리포트의 `lufsIntegrated`·`truePeakDbfs`도 fallback으로 읽는다. 실제 저장 음원에서 LUFS-I -12.97, True Peak 0.31 dBTP, Crest 15.6 dB, LRA 17.37을 확인했다.

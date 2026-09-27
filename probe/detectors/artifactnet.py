@@ -65,8 +65,11 @@ def _segment_starts(length: int, count: int, selection: str) -> list[int]:
         return [0]
     tail = length - SEGMENT_SAMPLES
     if selection == "start":
-        return [min(index * SEGMENT_SAMPLES, tail) for index in range(count)]
-    return np.linspace(0, tail, count, dtype=np.int64).tolist()
+        starts = list(range(0, tail + 1, SEGMENT_SAMPLES))
+        if starts[-1] != tail:
+            starts.append(tail)
+        return starts[:count]
+    return sorted(set(np.linspace(0, tail, count, dtype=np.int64).tolist()))
 
 
 def _aggregate(values: np.ndarray, aggregation: str) -> float:

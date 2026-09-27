@@ -191,3 +191,19 @@ ArtifactNet의 구간 수와 집계 방법을 E0001 네 곡으로 비교했다. 
 | isotonic 레벨 수 | 2(붕괴) | 2(붕괴, 재현) |
 
 간격은 넓어지고 raw 정확도도 크게 개선됐지만, isotonic 붕괴는 여전히 재현된다. 인간 원곡 쪽에도 20점대 오탐 후보(`George Michael - Outside` 26.6)가 새로 나타나 다음 검증 대상에 추가했다. 상세는 `scratch/evaluations/anchor-corpus-evaluation.json`/`.csv`, README `90곡 anchor 교차 검증` 절 참고.
+
+---
+
+## R10. 코드 리뷰 높은 중요도 결함 수정 (2026-09-27)
+
+경로 이탈 이력 삭제, True Peak 마지막 샘플 누락과 선형 보간, 멀티채널 LUFS 가중치, MAD=0 이상치 누락, 0 가중치 검증 우회, ArtifactNet 중복 구간, 업로드 이름 순서 오류를 수정했다. ffmpeg/ffprobe timeout, 손상 리포트의 400 응답, 부분 설정 패치 보존, 자원 폴링 중복 방지, 상세·비교 화면의 오래된 응답 차단도 함께 반영했다.
+
+`recompute_totals.py`는 과거 결과의 Total을 실제로 갱신하는 도구라는 사용자 의도를 유지했다. 자동 백업을 강제하지 않고, 임시 파일 교체 방식의 원자 저장과 `--dry-run`, 허용 방식 검증, 결과별 기존 가중치 보존을 추가했다. 회귀 테스트는 프로젝트 루트와 상위 폴더 실행에서 각각 87개 통과했다.
+
+### Scratch 정리 정책
+
+앱 lifespan 시작 단계에서 리포트와 분석 이력의 `file` 경로를 모아 참조 중인 업로드 원본을 판별한다. 참조되지 않는 `scratch/uploads` 파일과 현재 `path+mtime+kind`에 해당하지 않는 `scratch/visuals` PNG를 삭제한다. 분석 저장, 이력 제한 적용, 개별 이력·리포트 삭제 뒤에도 다시 정리해 삭제된 항목의 캐시가 남지 않게 했다. 참조 중인 업로드는 이력의 오디오 재생을 위해 보존한다.
+
+### N-1. Loudness 프로덕션 배선
+
+`probe/loudness.py`의 BS.1770 계산은 정밀 테스트만 존재하고 `dsp.analyze()`에서 호출되지 않았다. `level_metrics()`와 `integrated_loudness()`·`crest_factor_db()`를 `level_profile()`로 합쳐 실제 API의 `parameters.levels`에 연결했다. UI 계약에 맞춰 `integratedLufs`, `truePeakDbtp`, `crestDb`를 출력하고, 기존 비교 API가 사용하는 `truePeakDbfs` 등 기존 키도 유지했다.
