@@ -14,7 +14,7 @@
       "#ff78c8"
     ]
   },
-  "historyLimit": 100,
+  "historyLimit": 300,
   "recursiveFolders": true,
   "historyCardSize": 250,
   "variableHistoryCards": true,

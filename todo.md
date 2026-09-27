@@ -97,6 +97,11 @@
 - [x] **E-7 [낮음]** 저장 결과에서 참조되는 현재 `path+mtime+kind` 캐시만 유지하고 나머지 PNG를 정리하도록 수정
 - [ ] **E-8 [낮음]** 한글/일본어 파일명이 섞인 이력을 출력하는 검증 스크립트가 Windows 콘솔 cp949 인코딩으로 크래시함 — `PYTHONIOENCODING=utf-8` 필요
 
+## 완료 — 분석 이력 배지 개수 불일치 (2026-09-27)
+
+- [x] **[신규, 사용자 제보]** 분석 이력 배지(156)가 "현재 남은 개수"가 아니라 "누적 실행 횟수"처럼 보이는 문제 — `load_history()`가 영구 `REPORTS_DIR`와 트림되는 `HISTORY_DIR`을 값 기반으로 합쳐, `HISTORY_DIR` 사본이 트림되면 `REPORTS_DIR` 원본이 좀비처럼 재등장했음(historyLimit 300, 배지 156, 실제 유효 100). `load_history()`/`change_signature()`를 `HISTORY_DIR` 단일 소스로 변경해 해결. 근거는 `memory-bank/knowledge/trouble-shooting.md` 참고
+- [x] "Max 분석 이력 초과 시 오래된 것부터 삭제" 재확인 — `trim_history()`(분석 저장 후)와 `PUT /api/settings`(한도 낮출 때 즉시) 양쪽에 이미 구현돼 있었음. 배지 버그가 이 동작의 효과를 가리고 있었을 뿐, 별도 수정 불필요
+
 ## 다음 검증
 
 - [ ] 새로 26점대로 오른 인간 오탐 후보(`George Michael - Outside` 등)를 개별 확인

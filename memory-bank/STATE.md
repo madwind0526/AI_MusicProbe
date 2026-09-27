@@ -2,10 +2,10 @@
 
 ## Current Wave
 
-- **Wave:** 36
-- **Status:** Done — 코드 리뷰 Round 7 (`start.bat`/`stop.bat` 포트 처리), 중간 finding 최종 집계 정정, 문서 4종 동기화
+- **Wave:** 37
+- **Status:** Done — 분석 이력 배지 개수가 실제 보관 개수보다 컸던 원인(REPORTS_DIR·HISTORY_DIR 중복 제거의 노후화) 수정
 - **Cache Status:** CLEAN
-- **Last Checkpoint:** 2026-09-27 — start/stop.bat 수정, 유령 서버 3개 정리 실환경 검증, 127 tests passed
+- **Last Checkpoint:** 2026-09-27 — `load_history()`/`change_signature()`를 HISTORY_DIR 단일 소스로 변경, 실 서버 재시작 후 배지 156→100 확인, 127 tests passed
 
 ## Wave History
 
@@ -47,6 +47,7 @@
 | 34 | 리뷰 잔여 수정: overlap-add, 탐지기 퇴화 입력, 이력·리포트·백업 안전성, 구간 정책 | Done |
 | 35 | E0002 4종 full flow 재분석, API 공용 진행률, spectrogram 원자 캐시·단일 fetch | Done |
 | 36 | `start.bat`/`stop.bat` 포트 처리(R-4), 리뷰 중간 finding 최종 집계 정정, README·progress·revision 동기화 | Done |
+| 37 | 분석 이력 배지 개수 = 보관 개수 불일치 원인 규명·수정(REPORTS_DIR 병합 제거) | Done |
 
 ## Session Notes
 
@@ -70,3 +71,4 @@
 - `stop.bat`은 `python.exe` + 명령행 `probe.app` 패턴으로만 종료하므로 다른 프로젝트의 서버는 건드리지 않는다.
 - 코드 리뷰 최종 집계(2026-09-27): 높음 15/15 해결, 중간 21 해결 + 2 잔존(M-20 설계, M-23 `nan_to_num` 무음 치환) + 1 기각(M-21 오독), 낮음 64 미착수. 리뷰 중 생긴 자기 회귀 R-1(수정), R-2(이상 없음), R-3(성능, 수정), R-4(포트, 수정).
 - 리뷰 판정은 **항상 함수 본문을 읽고** 한다. 패턴 grep은 존재 부부의 증거일 뿐 부재의 증거가 아니며, 이 문서에도 세 번 반복된 오판으로 기록돼 있다.
+- **분석 이력 배지가 실제 보관 개수보다 컸던 이유**: `load_history()`가 `REPORTS_DIR`(영구 "저장된 리포트")와 `HISTORY_DIR`(historyLimit로 트림되는 자동 사본)를 합친 뒤 `(generatedAt, file, totalScore, status)` 값으로 중복 제거했다. `trim_history()`는 `HISTORY_DIR`만 지우므로, 사본이 트림으로 사라지면 다음 로드부터 `REPORTS_DIR` 원본이 매치할 사본이 없어 "새 항목"처럼 다시 나타났다(영구 좀비). 실측: historyLimit=300인데 배지 156, 실제 유효 `historyItemId`는 100개뿐이었다. 고정: `load_history()`/`change_signature()`를 `HISTORY_DIR` 단일 소스로 바꿈. `REPORTS_DIR`는 `/api/reports`(저장된 리포트 탭)가 이미 독립적으로 완전히 다루므로 손실 없음. 재시작 후 배지 100으로 확인.

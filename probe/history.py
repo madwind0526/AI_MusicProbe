@@ -132,12 +132,12 @@ def save_history(payload: dict) -> Path:
 
 
 def change_signature() -> dict:
-    """Return a cheap file-system token without parsing every history payload."""
-    sources = []
-    if REPORTS_DIR.is_dir():
-        sources.extend(REPORTS_DIR.glob("*.json"))
-    if HISTORY_DIR.is_dir():
-        sources.extend(HISTORY_DIR.glob("*.json"))
+    """Return a cheap file-system token without parsing every history payload.
+
+    Scoped to HISTORY_DIR only, matching `load_history()`: a REPORTS_DIR-only
+    change (e.g. a legacy stage-compare "저장") does not affect 분석 이력 anymore.
+    """
+    sources = list(HISTORY_DIR.glob("*.json")) if HISTORY_DIR.is_dir() else []
     entries = []
     for source in sorted(set(sources), key=lambda path: str(path).casefold()):
         try:
@@ -195,14 +195,22 @@ def trim_history(limit: int) -> None:
 
 
 def load_history() -> list[dict]:
-    sources = []
-    if REPORTS_DIR.is_dir():
-        sources.extend(REPORTS_DIR.glob("*.json"))
-    if HISTORY_DIR.is_dir():
-        sources.extend(HISTORY_DIR.glob("*.json"))
+    # HISTORY_DIR only. REPORTS_DIR root files are separate "저장된 리포트" entries
+    # (served by /api/reports, kept forever, never trimmed) and used to also be
+    # merged in here with a value-based dedup against their HISTORY_DIR twin. That
+    # twin is exactly what `trim_history()` deletes once it ages past
+    # `historyLimit`, and once it's gone the dedup key no longer matches, so the
+    # permanent root copy would silently reappear as a "new" history item forever
+    # — inflating the displayed/returned count past what `historyLimit` should
+    # allow and defeating oldest-first trimming. Reading only HISTORY_DIR makes
+    # the returned count and the trim policy refer to the same set of files.
+    if not HISTORY_DIR.is_dir():
+        return []
 
     items = []
-    for source in sources:
+    for source in HISTORY_DIR.glob("*.json"):
+        if source == _favorites_path():
+            continue
         try:
             payload = json.loads(source.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -224,32 +232,7 @@ def load_history() -> list[dict]:
             item = dict(result)
             item["id"] = f"{source.stem}:{index}"
             item["generatedAt"] = generated_at
-            item["_historyCopy"] = source.parent == HISTORY_DIR
             items.append(item)
-
-    history_copy_keys = {
-        (
-            str(item.get("generatedAt", "")),
-            str(item.get("file", "")).casefold(),
-            str(item.get("totalScore")),
-            str(item.get("status", "")),
-        )
-        for item in items
-        if item.get("_historyCopy")
-    }
-    filtered_items = []
-    for item in items:
-        key = (
-            str(item.get("generatedAt", "")),
-            str(item.get("file", "")).casefold(),
-            str(item.get("totalScore")),
-            str(item.get("status", "")),
-        )
-        if not item.get("_historyCopy") and key in history_copy_keys:
-            continue
-        item.pop("_historyCopy", None)
-        filtered_items.append(item)
-    items = filtered_items
 
     favorites = _load_favorites()
     legacy_counts: dict[str, int] = {}

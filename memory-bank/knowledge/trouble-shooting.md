@@ -371,3 +371,26 @@ standard-deviation windows as silence before inference and cover a constant nonz
   - `audioio.py`의 `-ar`/`-ac`는 44100/1 하드코드가 아니라 ffprobe로 읽은 `meta.sample_rate`/`meta.channels`(파일 네이티브 값)였다. 발견 내용이 처음부터 오독이었다.
 - **"고쳤다"고 기록한 항목도 코드로 확인한다.** `nan_to_num` 무음 치환(M-23)을 M-2와 묶어 "자체 수정"으로 집계했지만 실제 반영은 M-2의 `ddof=1`뿐이었다. 문서 수정은 실제 결함을 고치지 않는다.
 - **판정 방법**: 해당 함수의 **전체 본문**을 읽고, 가능하면 venv에서 최소 재현을 돌린 뒤에 해결/잔존을 확정한다. 집계 숫자를 먼저 쓰고 근거를 나중에 채우지 않는다.
+
+## 두 소스를 값으로 중복 제거하면, 한쪽이 트림될 때 좀비가 부활한다 (2026-09-27)
+
+### 증상
+
+사이드바 "분석 이력" 배지가 217 → 156처럼 사용자가 실제로 본 적 없는 큰 숫자로 계속 올라간다. `historyLimit` 설정(300)보다 작은데도 "지금까지 분석한 총 횟수"처럼 보인다는 제보.
+
+### 원인
+
+`probe/history.py::load_history()`가 두 디렉터리를 합쳐 읽었다:
+- `REPORTS_DIR`(루트) — `save=true`로 "저장"한 리포트. **영구, 절대 트림 안 됨.**
+- `HISTORY_DIR`(`reports/history/`) — 모든 분석 후 항상 자동 저장되는 사본. `trim_history()`가 `historyLimit`만큼만 남기고 오래된 것부터 지운다.
+
+같은 분석은 두 곳에 동시에 생기므로, 로더는 `(generatedAt, file, totalScore, status)` 값 일치로 "이미 HISTORY_DIR 사본이 있는 REPORTS_DIR 항목"을 건너뛰어 카드가 두 번 보이지 않게 했다. 문제는 **그 HISTORY_DIR 사본이 나중에 `trim_history()`로 지워지면**, 다음 로드부터는 매칭할 사본이 없어 REPORTS_DIR의 원본이 "새로 나타난 항목"처럼 다시 집계된다는 것이다. `REPORTS_DIR`는 절대 안 지워지므로 이 좀비 항목은 영구히 쌓인다.
+
+실측(2026-09-27): `historyLimit=300`, 배지 156, 그러나 실제 유효 `historyItemId`(HISTORY_DIR에서만 부여됨)는 100개뿐이었다. 나머지 56개가 정확히 이 좀비였다(`REPORTS_DIR` root-only 50개 + 소량의 다른 mismatch). UI에서 "삭제"해도 HISTORY_DIR 사본만 지워지고 REPORTS_DIR 원본은 그대로 남아, 다음 로드에 다시 부활했다.
+
+### 해결 / 규칙
+
+- **값 기반 중복 제거로 두 소스를 합치지 않는다.** 한쪽만 트림되는 구조라면 시간이 지나면 반드시 이 버그가 재발한다.
+- `load_history()`/`change_signature()`를 `HISTORY_DIR` 단일 소스로 변경했다. `REPORTS_DIR`(저장된 리포트)는 `/api/reports`가 이미 완전히 독립적으로 목록·조회·삭제를 제공하므로 잃는 기능이 없다.
+- **표시 개수와 트림 정책은 항상 같은 소스 집합을 봐야 한다.** "몇 개 있나"를 보여주는 카운터와 "몇 개까지 남길까"를 결정하는 트림 로직이 다른 파일 집합을 스캔하면, 한쪽만 바뀌어도 사용자에게는 모순으로 보인다.
+- `historyLimit`을 낮추면 `PUT /api/settings`가 즉시 `trim_history()`를 호출해 오래된 것부터 지운다(이미 구현돼 있었음 — 배지 버그가 이 동작을 가리고 있었을 뿐).

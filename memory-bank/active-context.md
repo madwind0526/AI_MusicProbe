@@ -2,20 +2,20 @@
 
 ## Current Focus
 
-- Wave 36 완료: 코드 리뷰 Round 7에서 `start.bat`/`stop.bat`의 포트 처리 결함(R-4)을 수정하고 실환경 검증했다.
-- 서버를 실행한 채 `start.bat`을 다시 실행하면 Windows `SO_REUSEADDR` 때문에 새 인스턴스가 살아남은 인스턴스의 8792 포트를 빼앗는다. 서버는 정상이고 로그에도 오류가 없다.
-- `stop.bat`을 `Win32_Process` 조회로 바꿔 `python.exe` + 명령행 `probe.app` 프로세스를 전부 종료하고 10초까지 포트 해제를 기다린다. `start.bat`은 시작 전에 `stop.bat`을 호출한다.
-- 유령 서버 3개(2,317 MB)를 회수했고, 같은 포트를 쓰는 무관한 ComfyUI 서버(8190)는 생존했다. 재시작 후 신규 인스턴스만 남고 `/health` OK·탐지자 4개 active를 확인했다.
-- 리뷰 최종 집계: 높음 15/15 해결, 중간 21 해결 + 2 잔존(M-20 설계, M-23 `nan_to_num` 무음 치환) + 1 기각(M-21 오독), 낮음 64 미착수. 테스트 127개 통과.
-- M-8·M-17을 패턴 grep만 보고 이미 해결된 상태를 "미해결"로 잘못 보고했다. 세 번째 반복이므로 판정은 항상 함수 본문을 읽은 뒤에 내린다.
-- `codereview.md`·`README.md`·`progress.md`·`revision.md`와 memory-bank을 현재 상태로 동기화했다.
+- Wave 37 완료: 분석 이력 배지가 실제 보관 개수보다 컸던 원인을 찾아 고쳤다(사용자 제보: "156은 현재 남은 개수여야지 누적 실행 횟수가 아니다").
+- 원인: `load_history()`가 `REPORTS_DIR`(영구 저장 리포트)와 `HISTORY_DIR`(historyLimit로 트림되는 자동 사본)를 값 기반으로 합쳐 중복 제거했는데, HISTORY_DIR 사본이 `trim_history()`로 지워지면 REPORTS_DIR 원본이 다음 로드부터 "새 항목"처럼 부활했다. 실측: historyLimit 300, 배지 156, 실제 유효 historyItemId는 100개뿐(좀비 56개).
+- 고침: `load_history()`/`change_signature()`를 `HISTORY_DIR` 단일 소스로 변경. `REPORTS_DIR`(저장된 리포트)는 `/api/reports`가 이미 독립적으로 완전히 다루므로 기능 손실 없음. 서버 재시작 후 배지 156→100 확인, 테스트 127개 통과.
+- "Max 분석 이력 초과 시 오래된 것부터 삭제"는 `trim_history()`(저장 후)와 `PUT /api/settings`(한도 낮출 때 즉시)에 이미 구현돼 있었다 — 배지 버그가 이 동작이 작동 중인 걸 가려서 안 보였을 뿐.
+- Wave 36: 코드 리뷰 Round 7 — `start.bat`/`stop.bat`의 포트 처리 결함(R-4, Windows `SO_REUSEADDR`로 새 인스턴스가 살아있는 서버 포트를 빼앗는 문제) 수정, `stop.bat`을 `Win32_Process` 조회 기반으로 교체.
+- 리뷰 최종 집계: 높음 15/15 해결, 중간 21 해결 + 2 잔존(M-20 설계, M-23 `nan_to_num` 무음 치환) + 1 기각(M-21 오독), 낮음 64 미착수.
+- 판정은 항상 함수 본문을 읽은 뒤에 내린다 — 패턴 grep만으로 "미해결"이라 오판한 사례가 세 번 반복 기록됨.
 
 ## 남은 작업
 
 - 중간 2건 처리: M-23(`nan_to_num` 무음 치환을 플래그로 표시), M-20(외부 바인딩 전 인증·루트 구속)
 - 낮음/정적 64건 미착수. `dsp.py:48`의 `BRICKWALL_DB_PER_KHZ` 미사용이 포함
 - `C:\Claude\SongYUE2` 실제 health 폴링 경로 미조사
-- `scratch/run_flows.py`의 `\u` escape 버그로 4개 파일 flow 재실행 미완료
+- `errors_report.md`의 E-1(업로드 파일명 매핑, 높음) 등 E-1~E-8 미착수
 
 <!--
 규칙:
