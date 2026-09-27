@@ -1106,8 +1106,10 @@ $('audio-compare-open').onclick = () => audioCompare.open();
 new ResizeObserver(() => requestAnimationFrame(syncVariableHistoryCardHeights)).observe($('history-list'));
 renderFiles(); loadDetectorOptions(); loadHealth(); loadHistory(); loadSettings(); loadResources(); loadAnalysisStatus(); setInterval(loadResources, 3000);
 
-// Pick up analyses finished outside this tab (API, CLI, another window) by
-// polling a cheap token rather than the full result payload.
-setInterval(pollHistorySignature, 2500);
-setInterval(loadAnalysisStatus, 750);
+// Every in-tab action that can change history (analyze, delete, favorite,
+// settings save) already calls loadHistory() directly, so this tab never
+// needs polling to see its own changes. The only gap is a change made
+// outside this tab (API, CLI, another window) while this tab stays focused
+// and idle -- that's caught the moment the tab regains focus, not continuously.
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollHistorySignature(); });
+setInterval(loadAnalysisStatus, 750);
