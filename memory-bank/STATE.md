@@ -2,10 +2,10 @@
 
 ## Current Wave
 
-- **Wave:** 25
-- **Status:** Done — 음원 비교 변화량 패널 복원 및 API/UI 검증
+- **Wave:** 29
+- **Status:** Done — 점수 구간 시작점 정렬 및 왼쪽 작업 현황 Box
 - **Cache Status:** CLEAN
-- **Last Checkpoint:** 2026-09-27 — 대역별 dB 변화 API와 비교 패널 DOM 확인, 67개 테스트 통과
+- **Last Checkpoint:** 2026-09-27 — 구간 제목·첫 숫자 시작점과 왼쪽 작업 현황 Box 구조를 브라우저에서 확인
 
 ## Wave History
 
@@ -36,6 +36,10 @@
 | 23 | E0001 4개 기준 음원으로 ArtifactNet 5/max와 11/top-3 비교 | Done |
 | 24 | ArtifactNet 11/even/top-3 기본값 적용 및 실험 문서 동기화 | Done |
 | 25 | 음원 비교 대역별 변화량 패널과 비교 API 복원 | Done |
+| 26 | 상세 보기 상단 탐지기별 점수표, 미사용·미설치 상태 구분 | Done |
+| 27 | E/J/K 균형 90곡 평가, 업로드·대기열 제한, 진행률·내보내기·sticky 헤더 | Done |
+| 28 | 설정의 1–5구간 제목과 범위 텍스트 중앙 정렬 | Done |
+| 29 | 구간 제목·첫 숫자 시작점 정렬, 왼쪽 작업 현황 Box와 yy/zz 상태 연결 | Done |
 
 ## Session Notes
 

@@ -18,6 +18,13 @@ SCRATCH_DIR = Path(os.environ.get("AIPROBE_SCRATCH_DIR", ROOT / "scratch"))
 HOST = os.environ.get("AIPROBE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AIPROBE_PORT", "8792"))
 
+# Browser uploads and analysis jobs are bounded so one request cannot exhaust
+# local disk, memory, or detector processes for every other request.
+MAX_UPLOAD_FILE_BYTES = int(os.environ.get("AIPROBE_MAX_UPLOAD_FILE_BYTES", 500 * 1024 * 1024))
+MAX_UPLOAD_TOTAL_BYTES = int(os.environ.get("AIPROBE_MAX_UPLOAD_TOTAL_BYTES", 1024 * 1024 * 1024))
+MAX_ANALYSIS_ACTIVE = int(os.environ.get("AIPROBE_MAX_ANALYSIS_ACTIVE", 1))
+MAX_ANALYSIS_PENDING = int(os.environ.get("AIPROBE_MAX_ANALYSIS_PENDING", 2))
+
 # Analysis never resamples. Stage rates are reported as-is so a resample or a
 # codec ceiling stays visible instead of being normalised away.
 N_FFT = 4096

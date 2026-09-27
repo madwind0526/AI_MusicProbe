@@ -283,3 +283,10 @@ When a fixed endpoint such as `/api/audio/peaks` is declared after `/api/audio/{
 
 - The independent comparison module rendered waveforms and spectrograms but had no post-visual numeric delta section. Add a dedicated `/api/audio/compare` endpoint and request it only after both paths are selected.
 - Compare scale-relative band levels for low, low-mid, mid, high-mid, high, and ultra-high bands, and report absolute RMS, peak, and true-peak deltas separately. This keeps overall gain changes distinct from spectral-shape changes.
+
+## 완전 분리 표본에서 isotonic 보정이 두 단계로 붕괴 (2026-09-27)
+
+- 인간 60개 점수가 모두 2.3 이하이고 AI 30개 점수가 모두 8.9 이상인 90곡 표본에서는 그룹 교차 검증 성능이 높아도 class-balanced isotonic 보정이 출력값을 0과 100 두 단계로 압축했다.
+- 분류 지표 개선만 보고 보정기를 적용하면 연속 Total의 곡별 순위와 미세 차이가 사라진다.
+- 런타임 후보는 교차 검증 지표와 함께 보정 출력의 고유 단계 수를 검사해야 한다. 현재는 최소 5단계를 요구하고, 부족하면 raw Total을 유지한다.
+- 인간 hard negative와 낮은 점수의 AI 외부 표본이 추가된 뒤 다시 적합해야 한다.

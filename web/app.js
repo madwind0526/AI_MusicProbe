@@ -214,6 +214,69 @@ function frequencyAxisLabels(sampleRate) {
   });
 }
 
+function detectorScoreSummary(result) {
+  const analyzed = new Map((result.detectors || []).map((item) => [item.name, item]));
+  const failed = new Set((result.detectorErrors || []).map((item) => item.name));
+  const configured = state.detectors.length
+    ? state.detectors
+    : (state.detectorOptions?.detectors || []).map((item) => ({ ...item, available: false }));
+  const catalog = configured.length ? configured : (result.detectors || []);
+  const rows = catalog.map((detector) => {
+    const item = analyzed.get(detector.name);
+    const rawScore = Number(item?.score);
+    let value = '미사용';
+    let status = 'unused';
+    if (item && Number.isFinite(rawScore)) {
+      value = (rawScore * 100).toFixed(1);
+      status = 'scored';
+    } else if (failed.has(detector.name)) {
+      value = '분석 실패';
+      status = 'failed';
+    } else if (!detector.available) {
+      value = '미설치';
+      status = 'unavailable';
+    }
+    const dotClass = status === 'scored' ? scoreBand(rawScore * 100) : 'muted';
+    return `<tr><th scope="row"><span class="detector-score-name"><i class="detector-score-dot ${dotClass}" aria-hidden="true"></i>${escapeHtml(detector.label || detector.name)}</span></th><td class="detector-score-${status}">${escapeHtml(value)}</td></tr>`;
+  }).join('');
+  return `<section class="detector-score-summary" aria-labelledby="detector-score-summary-title"><h3 id="detector-score-summary-title">탐지기별 점수</h3><table><thead><tr><th scope="col">탐지기</th><th scope="col">점수</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+}
+
+function shortTime(seconds) {
+  const safe = Math.max(0, Number(seconds) || 0);
+  return `${Math.floor(safe / 60)}:${String(Math.floor(safe % 60)).padStart(2, '0')}`;
+}
+
+function detectorTimeline(item, fallbackDuration) {
+  const segments = (item.segments || []).map((segment) => ({
+    start: Number(segment.startSeconds ?? segment.startS),
+    end: Number(segment.endSeconds ?? segment.endS),
+    score: segment.score == null ? null : Number(segment.score),
+    error: segment.error || '',
+  })).filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start);
+  if (!segments.length) return '';
+  const duration = Math.max(Number(fallbackDuration) || 0, ...segments.map((segment) => segment.end));
+  if (!(duration > 0)) return '';
+  const laneEnds = [];
+  const positioned = segments.map((segment) => {
+    let lane = laneEnds.findIndex((end) => end <= segment.start);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = segment.end;
+    return { ...segment, lane };
+  });
+  const bars = positioned.map((segment, index) => {
+    const left = Math.max(0, Math.min(100, segment.start / duration * 100));
+    const width = Math.max(0.35, Math.min(100 - left, (segment.end - segment.start) / duration * 100));
+    const score = segment.score == null || !Number.isFinite(segment.score) ? null : Math.max(0, Math.min(1, segment.score));
+    const title = score == null
+      ? `${index + 1}번 구간 · ${shortTime(segment.start)}–${shortTime(segment.end)} · 점수 없음${segment.error ? ` · ${segment.error}` : ''}`
+      : `${index + 1}번 구간 · ${shortTime(segment.start)}–${shortTime(segment.end)} · ${(score * 100).toFixed(1)}점`;
+    const style = `left:${left.toFixed(3)}%;width:${width.toFixed(3)}%;top:${1 + segment.lane * 7}px;${score == null ? '' : `--segment-opacity:${(.25 + score * .75).toFixed(4)};`}`;
+    return `<i class="detector-segment${score == null ? ' invalid' : ''}" style="${style}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}"></i>`;
+  }).join('');
+  return `<div class="detector-timeline" role="img" aria-label="${escapeHtml(item.label || item.name)} 구간별 탐지 점수"><div class="detector-timeline-track" style="--timeline-lanes:${laneEnds.length}">${bars}</div><div class="detector-timeline-axis"><span>0:00</span><span>${shortTime(duration)}</span></div></div>`;
+}
+
 function openResult(result) {
   const panel = $('result-dialog-body');
   $('result-dialog-title').textContent = result.name || '측정 파라미터';
@@ -223,15 +286,16 @@ function openResult(result) {
     const score = Number(result.totalScore || 0);
     const query = new URLSearchParams({ path: result.file || '' }).toString();
     const metrics = metricEntries(result.parameters).map(([label, value]) => `<div class="metric-box"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+    const duration = Number(result.parameters?.meta?.durationS || 0);
     const detectors = (result.detectors || []).map((item) => {
       const tags = [];
       if (item.includedInTotal === false) tags.push('평가만');
       if (item.verdict) tags.push(item.verdict);
       if (item.aggregation) tags.push(item.aggregation);
       const optionText = Object.entries(item.options || {}).map(([key, value]) => `${(item.optionLabels || {})[key] || key} ${value}`).join(' · ');
-      return `<div class="detector-row"><span>${escapeHtml(item.label || item.name)}${tags.length ? ` · ${escapeHtml(tags.join(' · '))}` : ''}<small class="detector-row-options">${escapeHtml(optionText)}</small></span><strong>${Math.round(Number(item.score || 0) * 100)}</strong></div>`;
+      return `<div class="detector-result-block"><div class="detector-row"><span>${escapeHtml(item.label || item.name)}${tags.length ? ` · ${escapeHtml(tags.join(' · '))}` : ''}<small class="detector-row-options">${escapeHtml(optionText)}</small></span><strong>${Math.round(Number(item.score || 0) * 100)}</strong></div>${detectorTimeline(item, duration)}</div>`;
     }).join('');
-    panel.innerHTML = `<div class="result-overview"><div class="score-ring ${scoreBand(score)}" style="--score:${score}"><span>${score.toFixed(1)}</span><small>TOTAL</small></div><div><h3>최종 분석 점수</h3><p>${escapeHtml(compactConclusion(result))}</p><small>신뢰 지표 ${Number(result.confidence || 0).toFixed(1)} · 확률값이 아닌 잠정 종합 점수</small></div></div>
+    panel.innerHTML = `<div class="result-overview"><div class="score-ring ${scoreBand(score)}" style="--score:${score}"><span>${score.toFixed(1)}</span><small>TOTAL</small></div><div class="result-overview-copy"><h3>최종 분석 점수</h3><p>${escapeHtml(compactConclusion(result))}</p><small>신뢰 지표 ${Number(result.confidence || 0).toFixed(1)} · 확률값이 아닌 잠정 종합 점수</small></div>${detectorScoreSummary(result)}</div>
       <section class="source-information"><h3>원본 파일 정보</h3><p title="${escapeHtml(result.file)}">${escapeHtml(result.file)}</p></section>
       <section class="audio-visuals"><div class="audio-chart waveform-chart compare-waveform" id="waveform-chart"><svg id="detail-waveform-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="전체 음원 파형, 재생 위치 0%"><line class="waveform-loading" x1="0" x2="1000" y1="50" y2="50" /></svg></div><div class="compare-spectrogram"><div class="compare-frequency-axis">${frequencyAxisLabels(result.parameters?.meta?.sampleRate).map((label) => `<span>${label}</span>`).join('')}</div><div class="compare-spectrogram-body"><div class="audio-chart spectrogram-chart compare-spectrogram-plot"><img class="visual-base" src="/api/audio/spectrogram?${query}" alt="음원 스펙트로그램" loading="lazy"><div class="visual-played" id="spectrogram-played"><img src="/api/audio/spectrogram?${query}" alt="" loading="lazy"></div><div class="visual-playhead" id="spectrogram-playhead"></div></div><div class="compare-time-axis" id="compare-time-axis"><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span></div></div><div class="compare-db-axis"><span>0</span><i></i><span>-100</span><small>dBFS</small></div></div><audio id="detail-audio" preload="metadata" src="/api/media?${query}"></audio><div class="audio-seek"><span id="audio-current">0:00</span><input id="audio-seek-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="오디오 재생 위치"><span id="audio-duration">0:00</span></div><div class="audio-controls"><button type="button" data-audio-action="back" title="10초 뒤로" aria-label="10초 뒤로">&lt;&lt;</button><button type="button" class="audio-play" data-audio-action="play" title="재생" aria-label="재생"><svg viewBox="0 0 24 24"><path d="m9 6 10 6-10 6z"/></svg></button><button type="button" data-audio-action="forward" title="10초 앞으로" aria-label="10초 앞으로">&gt;&gt;</button><button type="button" class="audio-speed" data-audio-action="speed" title="재생 속도" aria-label="재생 속도">1x</button><span class="audio-volume-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></span><input class="audio-volume" id="audio-volume-slider" type="range" min="0" max="1" step="0.01" value="1" aria-label="볼륨"></div></section>
       <section class="detail-section"><h3>측정 파라미터</h3><div class="details-grid">${metrics}</div></section>
@@ -393,6 +457,30 @@ async function pollHistorySignature() {
   } catch (error) { /* transient: the next tick retries */ }
 }
 
+function showAnalysisProgress(index, total, name) {
+  const panel = $('analysis-progress');
+  const sidebarPanel = $('sidebar-analysis-progress');
+  const safeTotal = Math.max(0, Number(total) || 0);
+  const safeIndex = Math.max(0, Math.min(safeTotal || Number(index) || 0, Number(index) || 0));
+  panel.hidden = false;
+  sidebarPanel.hidden = false;
+  $('analysis-progress-count').textContent = safeTotal && safeIndex
+    ? `전체 ${safeTotal}개 중 ${safeIndex}번째`
+    : safeTotal ? `전체 ${safeTotal}개 · 준비 중` : '파일 확인 중';
+  $('analysis-progress-name').textContent = name || (safeIndex ? '음원을 분석하고 있습니다.' : '분석을 준비하고 있습니다.');
+  $('sidebar-analysis-progress-label').textContent = safeIndex ? '작업 진행 중…' : '작업 대기 중…';
+  $('sidebar-analysis-progress-count').textContent = safeTotal ? `${safeIndex}/${safeTotal}` : '0/0';
+  $('sidebar-analysis-progress-name').textContent = name || (safeIndex ? '음원을 분석하고 있습니다.' : '분석을 준비하고 있습니다.');
+  const track = $('analysis-progress-track');
+  track.setAttribute('aria-valuemax', String(safeTotal));
+  track.setAttribute('aria-valuenow', String(safeIndex));
+  const sidebarTrack = $('sidebar-analysis-progress-track');
+  sidebarTrack.setAttribute('aria-valuemax', String(safeTotal));
+  sidebarTrack.setAttribute('aria-valuenow', String(safeIndex));
+  $('analysis-progress-bar').style.width = safeTotal ? `${safeIndex / safeTotal * 100}%` : '0%';
+  $('sidebar-analysis-progress-bar').style.width = safeTotal ? `${safeIndex / safeTotal * 100}%` : '0%';
+}
+
 async function analyze() {
   const manual = $('path-input').value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
   const paths = [...new Set([...state.localPaths, ...manual])];
@@ -405,6 +493,7 @@ async function analyze() {
     const counter = total ? ` (${index}/${total})` : '';
     status.textContent = `음원 분석${counter} · ${name || (index ? '분석 중' : '준비 중')}`;
     button.textContent = `음원 분석${counter}`;
+    showAnalysisProgress(index, total, name);
   };
   try {
     state.analyzing = true;
@@ -422,8 +511,29 @@ async function analyze() {
       }, show)).summary.completed;
     }
     await loadHistory(); toast(`${completed}개 파일 분석을 완료했습니다.`);
-  } catch (error) { toast(error.message || '분석 중 오류가 발생했습니다.'); }
-  finally { state.analyzing = false; button.disabled = false; button.textContent = '분석 시작'; status.textContent = ''; }
+    $('analysis-progress-count').textContent = `전체 ${completed}개 완료`;
+    $('analysis-progress-name').textContent = '모든 분석 작업을 완료했습니다.';
+    $('analysis-progress-bar').style.width = '100%';
+    $('sidebar-analysis-progress-label').textContent = '작업 완료';
+    $('sidebar-analysis-progress-count').textContent = `${completed}/${completed}`;
+    $('sidebar-analysis-progress-name').textContent = '모든 분석 작업을 완료했습니다.';
+    $('sidebar-analysis-progress-bar').style.width = '100%';
+  } catch (error) {
+    const message = error.message || '분석 중 오류가 발생했습니다.';
+    $('analysis-progress-name').textContent = message;
+    $('sidebar-analysis-progress-label').textContent = '작업 오류';
+    $('sidebar-analysis-progress-name').textContent = message;
+    toast(message);
+  }
+  finally {
+    state.analyzing = false; button.disabled = false; button.textContent = '분석 시작'; status.textContent = '';
+    setTimeout(() => {
+      if (!state.analyzing) {
+        $('analysis-progress').hidden = true;
+        $('sidebar-analysis-progress').hidden = true;
+      }
+    }, 4000);
+  }
 }
 
 async function streamProgress(url, options, onProgress) {
@@ -698,7 +808,8 @@ function renderReports() {
   });
   $('report-list').innerHTML = reports.length ? reports.map((item) => {
     const created = item.createdAt ? new Date(item.createdAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }) : '생성 시각 정보 없음';
-    return `<article class="report-item"><button type="button" class="report-open" data-open-report="${escapeHtml(item.name)}"><span>${escapeHtml(item.name)}</span><small>${escapeHtml(created)} · ${formatSize(item.sizeBytes || 0)} · 클릭하여 요약 보기</small></button><button type="button" class="report-delete" data-delete-report="${escapeHtml(item.name)}" title="리포트 삭제" aria-label="${escapeHtml(item.name)} 삭제"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3m2 0-1 13H8L7 7m3 4v5m4-5v5"/></svg></button></article>`;
+    const encodedName = encodeURIComponent(item.name);
+    return `<article class="report-item"><button type="button" class="report-open" data-open-report="${escapeHtml(item.name)}"><span>${escapeHtml(item.name)}</span><small>${escapeHtml(created)} · ${formatSize(item.sizeBytes || 0)} · 클릭하여 요약 보기</small></button><a class="report-export" href="/api/reports/${encodedName}/export?format=json" download title="JSON 내보내기" aria-label="${escapeHtml(item.name)} JSON 내보내기">JSON</a><a class="report-export" href="/api/reports/${encodedName}/export?format=csv" download title="CSV 내보내기" aria-label="${escapeHtml(item.name)} CSV 내보내기">CSV</a><button type="button" class="report-delete" data-delete-report="${escapeHtml(item.name)}" title="리포트 삭제" aria-label="${escapeHtml(item.name)} 삭제"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3m2 0-1 13H8L7 7m3 4v5m4-5v5"/></svg></button></article>`;
   }).join('') : '<p class="empty-text">저장된 리포트가 없습니다.</p>';
   document.querySelectorAll('[data-open-report]').forEach((button) => { button.onclick = () => openReportDetails(button.dataset.openReport); });
   document.querySelectorAll('[data-delete-report]').forEach((button) => { button.onclick = () => removeReport(button.dataset.deleteReport); });
@@ -731,6 +842,7 @@ function applySettings() {
 
 function renderSettingsForm() {
   state.settings.scoreBands.thresholds.forEach((value, index) => { $(`score-threshold-${index}`).value = value; });
+  updateScoreRangeStarts();
   state.settings.scoreBands.colors.forEach((value, index) => { $(`score-color-${index}`).value = value; });
   $('history-limit').value = state.settings.historyLimit;
   $('recursive-folders').checked = state.settings.recursiveFolders;
@@ -740,6 +852,13 @@ function renderSettingsForm() {
   $('settings-music-path').value = state.settings.paths.music;
   $('settings-reports-path').value = state.settings.paths.reports;
   $('settings-models-path').value = state.settings.paths.models;
+}
+
+function updateScoreRangeStarts() {
+  [1, 2, 3, 4].forEach((index) => {
+    const value = $(`score-threshold-${index - 1}`)?.value;
+    if ($(`score-range-start-${index}`)) $(`score-range-start-${index}`).textContent = value || '—';
+  });
 }
 
 async function loadSettings() {
@@ -865,6 +984,7 @@ const dropZone = $('drop-zone'); dropZone.onclick = () => openBrowser('files'); 
 dropZone.addEventListener('drop', (event) => addFiles(event.dataTransfer.files));
 document.querySelectorAll('[data-settings-folder]').forEach((button) => button.onclick = () => { const target = button.dataset.settingsFolder; openBrowser('folder', target, $(`settings-${target}-path`).value); });
 $('settings-form').addEventListener('submit', saveSettings);
+document.querySelectorAll('[id^="score-threshold-"]').forEach((input) => input.addEventListener('input', updateScoreRangeStarts));
 audioCompare = window.createAudioCompare({
   pickFile: (row) => openBrowser('files', null, state.settings.paths.music, row),
   getPeakCount: () => state.settings.waveformPeaks,

@@ -87,7 +87,10 @@ Content-Type: application/json
 | `GET` | `/api/detector-options` · `PUT` `/api/detector-options` | 탐지기 분석 옵션과 Total 결합 방식 |
 | `GET` | `/api/history` | 분석 이력 |
 | `GET` | `/api/reports` · `/api/reports/{name}` | 저장된 리포트 |
+| `GET` | `/api/reports/{name}/export?format=json\|csv` | 리포트 파일 내보내기 |
 | `GET` | `/api/resources` | CPU·RAM·GPU 사용량 |
+
+브라우저 업로드는 파일당 500 MB, 요청 전체 1 GB로 제한됩니다. 분석은 동시에 1건만 실행하고 최대 2건까지 대기하며, 그 이상은 HTTP 429로 바로 알립니다. 제한값은 `AIPROBE_MAX_UPLOAD_FILE_BYTES`, `AIPROBE_MAX_UPLOAD_TOTAL_BYTES`, `AIPROBE_MAX_ANALYSIS_ACTIVE`, `AIPROBE_MAX_ANALYSIS_PENDING` 환경 변수로 바꿀 수 있습니다.
 
 `POST /api/analyze` 응답의 `results` 배열은 **입력 파일별** 결과이며 각 항목에 다음이 들어갑니다.
 
@@ -122,9 +125,9 @@ Content-Type: application/json
 
 모델 입력과 결합된 샘플레이트·FFT·주파수 대역은 바꾸지 않습니다. 팝업에서 `변경 불가`로 표시됩니다.
 
-### ArtifactNet은 기본이 `평가만`
+### ArtifactNet은 현재 `Total 반영`
 
-ArtifactNet 원점수는 다른 탐지기보다 자릿수가 작습니다. E0001·E0002에서 집계법과 가중치를 바꿔도 방향성이 고쳐지지 않아, 근사 0인 값을 기하평균에 넣어 Human 대조군 점수까지 같이 눌러버리는 일이 생겼습니다. 그래서 산출은 하되 Total에는 넣지 않는 `평가만`이 기본입니다. 필요하면 팝업에서 `Total 반영`으로 바꿀 수 있습니다.
+ArtifactNet은 초기에는 낮은 원점수가 기하평균을 크게 누르는 문제가 있어 `평가만`으로 사용했습니다. 이후 E0001 네 곡과 90곡 앵커를 비교해 기본 집계를 `11구간/even/Top-3/정규화 끔`으로 바꾸고 현재는 Total에 반영합니다. 여전히 잠정 설정이므로 필요하면 팝업에서 `평가만`으로 바꿀 수 있습니다.
 
 분석 결과에는 이 설정이 그대로 기록되므로 나중에 왜 그 점수가 나왔는지 확인할 수 있습니다.
 
@@ -134,7 +137,7 @@ ArtifactNet 원점수는 다른 탐지기보다 자릿수가 작습니다. E0001
   "detectors": { "sonics": { "includedInTotal": true, "maxWindows": 24, "...": "..." } }
 },
 "scoreInfo": {
-  "components": { "method": "detector-geometric-mean-v1", "inputs": {}, "included": ["sonics", "lofcz"], "excluded": ["artifactnet"] }
+  "components": { "method": "detector-geometric-mean-v1", "inputs": {}, "included": ["artifactnet", "lofcz", "sonics"], "excluded": [] }
 }
 ```
 
@@ -185,7 +188,23 @@ E0001 기준 네 곡을 SONICS와 lofcz에 ArtifactNet을 추가해 비교했습
 | E0001 AI 원곡 + LANDR 후처리 | 86.3 | **74.5** |
 | E0001 AI 원곡 + SongYUE2 다듬기 + Mastering-1 | 84.7 | 86.4 |
 
-11구간 + Top-3는 인간 원곡을 낮게 유지하면서 AI 원곡을 높게 분리하고, 한 구간만 선택하는 최댓값보다 이상치 영향을 줄였습니다. 다만 두 후처리 결과의 상대 순서가 예상과 달라 추가 기준곡 검증이 필요합니다. 리포트는 `reports/20260926T183136+0000-file-analysis.json`과 `reports/20260926T183327+0000-file-analysis.json`에 저장되어 있습니다.
+11구간 + Top-3는 인간 원곡을 낮게 유지하면서 AI 원곡을 높게 분리하고, 한 구간만 선택하는 최댓값보다 이상치 영향을 줄였습니다. 후처리 두 결과의 상대 순서 원인 분석은 사용자 결정에 따라 이번 범위에서 제외했습니다. 리포트는 `reports/20260926T183136+0000-file-analysis.json`과 `reports/20260926T183327+0000-file-analysis.json`에 저장되어 있습니다.
+
+### 90곡 anchor 교차 검증
+
+SongYUE2의 `Mastering-1` 프리셋과 후처리 그래프를 배치 처리로 재현해, 13개 컬렉션에서 고른 인간 원곡 30개와 처리본 30개를 만들었습니다. AI는 후처리본을 섞지 않고 `F:\Music\Music-원본`에서 E/J/K 계열 원본을 각각 10개씩 균등하게 골랐습니다. 모든 파일은 ArtifactNet `11/even/Top-3/정규화 끔`과 SONICS·lofcz를 함께 사용했습니다.
+
+| 코호트 | 개수 | 최솟값 | 중앙값 | 최댓값 |
+|--------|----:|------:|------:|------:|
+| 인간 원곡 | 30 | 0.0 | 0.1 | 1.5 |
+| 인간 + Mastering-1 | 30 | 0.0 | 0.1 | 2.3 |
+| E 계열 AI 원본 | 10 | 13.4 | 59.1 | 99.0 |
+| J 계열 AI 원본 | 10 | 9.0 | 34.6 | 80.8 |
+| K 계열 AI 원본 | 10 | 8.9 | 20.5 | 97.8 |
+
+인간 원곡과 처리본의 Total 변화 중앙값은 0.0점, 절댓값 중앙값은 0.1점, 절댓값 75백분위는 0.3점이었습니다. 이 표본에서는 `Mastering-1`이 인간 음원을 AI처럼 보이게 만들지 않았습니다. 반면 50점 경계를 그대로 쓰는 원시 Total은 K/J 계열의 낮은 점수를 많이 놓쳐 민감도 43.3%, 특이도 100%, balanced accuracy 71.7%였습니다.
+
+class-balanced PAVA isotonic 보정은 같은 곡 pair 5-fold에서 balanced accuracy 99.2%, 가수/연도와 E/J/K 그룹 5-fold에서 97.5%를 냈습니다. 그러나 인간 최댓값 2.3과 AI 최솟값 8.9 사이에 표본이 하나도 없어 보정 함수가 **0과 100 두 값으로만 붕괴**했습니다. 분류 경계에는 유리하지만 연속적인 Total의 강도와 AI 곡 사이 순위를 모두 없애므로 런타임에는 적용하지 않았습니다. 결과와 행 단위 데이터는 `scratch/evaluations/anchor-corpus-evaluation.json` 및 `.csv`에 저장됩니다.
 
 ## 검증 방식
 
@@ -202,7 +221,28 @@ scratch\build_e0003_comparison.py   # E0003 기준군 비교 리포트
 .venv\Scripts\pytest                 # 테스트
 ```
 
-현재 상태는 **잠정(provisional)** 입니다. 총점은 paired anchor 분포가 안정되면 isotonic regression 같은 단조 보정을 적용할 예정이며, 그전까지는 코퍼스간 비교용으로만 읽어야 합니다.
+현재 상태는 **잠정(provisional)** 입니다. 이번 anchor에서는 인간과 AI 사이가 비어 isotonic 보정이 이진 판정으로 붕괴했습니다. 인간 오탐 후보, 더 낮은 AI 점수, 외부 생성기 코퍼스를 추가해 0–100 구간의 실제 분포가 확보될 때까지 원시 Total을 유지합니다.
+
+### 최근 평가 요약 (2026-09-27)
+
+이번 평가는 현재 설치된 3개 탐지기(SONICS, lofcz, ArtifactNet)를 사용하고,
+ArtifactNet은 `11구간 / even / Top-3 / levelNormalize=false` 조건으로 고정했다.
+비교 대상은 인간 원본 30곡, 같은 곡의 SongYUE2 Mastering-1 처리본 30곡,
+그리고 AI 원본 E/J/K 계열 각 10곡이다. AI 후처리본은 이번 평가에서 제외했다.
+
+- 인간 원본과 인간 Mastering-1의 중앙값은 모두 **0.1**로 거의 같았다.
+- 인간 Mastering-1의 최댓값은 **2.3**으로, 이번 표본에서는 후처리가 인간 음원을 AI처럼 보이게 만들지 않았다.
+- AI 원본 중앙값은 E 계열 **59.1**, J 계열 **34.6**, K 계열 **20.5**였다.
+- AI 원본의 최솟값은 **8.9**였으므로, 현재 표본에서는 인간 최댓값 2.3과 분리되었다.
+- 50점 단일 임계값의 balanced accuracy는 **71.67%**였다.
+- isotonic 보정은 교차 검증 수치는 높았지만 결과가 0과 100으로만 압축되어,
+  연속적인 Total 순위를 보존해야 하는 현재 제품에는 적용하지 않았다.
+
+따라서 현재 Total은 확정적인 저작자 판정이나 확률이 아니라, 여러 탐지기의 결과를
+기하평균으로 결합한 **비교용 원시 점수**다. 특히 J/K 계열에서 낮은 AI 점수가
+나타나므로, 더 다양한 인간 대조군과 낮은 점수의 AI 표본을 추가한 뒤 임계값과
+보정 방법을 다시 검증해야 한다. 상세 행 단위 결과는
+`scratch/evaluations/anchor-corpus-evaluation.json`과 `.csv`에 저장된다.
 
 ## 프로젝트 구조
 

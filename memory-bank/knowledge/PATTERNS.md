@@ -114,3 +114,21 @@ Score bands can be represented with CSS classes and a `--score-color` variable s
 - 다른 프로젝트의 비교 UI를 이식할 때 원본 프로젝트를 런타임 의존성으로 두지 않고, 전용 JS/CSS 모듈과 현재 서버의 media/peaks/spectrogram API로 연결한다.
 - 두 오디오의 전환 재생은 현재 초 단위 위치를 공유하고 각 파일 길이로 clamp한다. 파형과 스펙트로그램의 playhead 비율은 각 파일 길이로 따로 계산한다.
 - built-in 탐색기는 비교 슬롯 식별자를 전달해 한 파일만 선택하도록 제한하며 기존 다중 파일 분석 선택은 그대로 유지한다.
+
+## 저장 결과와 현재 탐지기 상태를 함께 보여주는 요약표
+
+- 상세 결과의 `detectors`에는 분석 당시 실제 점수를 반환한 탐지기만 있으므로, 이 배열만 렌더링하면 미사용·미설치 슬롯이 사라진다.
+- 현재 탐지기 카탈로그를 표의 행으로 사용하고 저장 결과를 이름으로 결합한다. 점수가 있으면 점수, 점수가 없고 현재 설치되어 있으면 `미사용`, 설치되어 있지 않으면 `미설치`로 표시한다.
+- 분석 당시 실행했지만 오류가 저장된 경우에는 `미사용`으로 숨기지 않고 `분석 실패`로 표시한다.
+
+## Bounded analysis admission and upload limits (2026-09-27)
+
+- CPU/GPU 분석 엔드포인트가 여러 개라면 각각 semaphore를 두지 말고 하나의 공유 대기열로 활성 작업 수와 대기 작업 수를 제한한다. 그래야 경로 분석, 업로드 분석, 단계별 분석이 같은 자원을 두고 경쟁할 때 전체 상한이 유지된다.
+- 업로드는 개별 파일 제한과 요청 전체 제한을 모두 검사한다. 제한 초과나 중간 실패가 발생하면 이미 만든 임시 파일을 같은 오류 경로에서 정리한다.
+- health 응답에 active, pending, activeLimit, pendingLimit을 노출하면 UI와 운영자가 혼잡 원인을 구분할 수 있다.
+
+## Sticky heading inside nested scroll containers (2026-09-27)
+
+- `position: sticky`의 이동 범위는 가장 가까운 스크롤 컨테이너뿐 아니라 sticky 요소의 containing block 높이에도 제한된다.
+- 같은 이력 컴포넌트를 독립 화면과 분석 화면 안에서 공유할 때 중간 wrapper의 `height: 100%`가 콘텐츠 높이를 화면 높이로 고정하면 제목이 카드와 함께 사라질 수 있다.
+- 스크롤을 담당하는 상위 요소는 그대로 두고 이력 wrapper에 `height: auto; min-height: 100%`를 적용하면 내용 높이가 카드 전체만큼 늘어나 두 배치에서 sticky가 유지된다.

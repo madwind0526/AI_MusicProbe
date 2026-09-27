@@ -6,10 +6,14 @@ import json
 import queue
 import shutil
 import threading
+import csv
+import io
+from contextlib import AbstractContextManager
 from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -19,7 +23,16 @@ from pydantic import BaseModel, Field
 from . import __version__, dsp, history as history_module, report as report_module
 from .app_settings import load_settings, save_settings
 from .audioio import AudioToolError, load as load_audio
-from .config import HOST, PORT, REPORTS_DIR, SCRATCH_DIR
+from .config import (
+    HOST,
+    MAX_ANALYSIS_ACTIVE,
+    MAX_ANALYSIS_PENDING,
+    MAX_UPLOAD_FILE_BYTES,
+    MAX_UPLOAD_TOTAL_BYTES,
+    PORT,
+    REPORTS_DIR,
+    SCRATCH_DIR,
+)
 from .detector_options import describe as describe_detector_options, load as load_detector_options, merge as merge_detector_options, save as save_detector_options
 from .detectors import describe as describe_detectors, set_enabled as set_detector_enabled
 from .file_analysis import analyze_files
@@ -36,6 +49,56 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 _PROGRESS_IDLE_TIMEOUT = 1800.0
 
 app = FastAPI(title="ai-music-probe", version=__version__, docs_url="/api/docs", redoc_url=None)
+
+
+class AnalysisReservation(AbstractContextManager):
+    def __init__(self, owner: "AnalysisQueue") -> None:
+        self.owner = owner
+        self.entered = False
+
+    def __enter__(self) -> "AnalysisReservation":
+        self.owner.semaphore.acquire()
+        with self.owner.lock:
+            self.owner.active += 1
+        self.entered = True
+        return self
+
+    def __exit__(self, *_args) -> None:
+        with self.owner.lock:
+            if self.entered:
+                self.owner.active -= 1
+            self.owner.submitted -= 1
+        if self.entered:
+            self.owner.semaphore.release()
+
+
+class AnalysisQueue:
+    def __init__(self, active_limit: int, pending_limit: int) -> None:
+        self.active_limit = max(1, active_limit)
+        self.pending_limit = max(0, pending_limit)
+        self.semaphore = threading.BoundedSemaphore(self.active_limit)
+        self.lock = threading.Lock()
+        self.submitted = 0
+        self.active = 0
+
+    def reserve(self) -> AnalysisReservation:
+        with self.lock:
+            if self.submitted >= self.active_limit + self.pending_limit:
+                raise HTTPException(status_code=429, detail="분석 대기열이 가득 찼습니다. 진행 중인 분석이 끝난 뒤 다시 시도해 주세요.")
+            self.submitted += 1
+        return AnalysisReservation(self)
+
+    def snapshot(self) -> dict[str, int]:
+        with self.lock:
+            return {
+                "active": self.active,
+                "pending": max(0, self.submitted - self.active),
+                "activeLimit": self.active_limit,
+                "pendingLimit": self.pending_limit,
+            }
+
+
+_ANALYSIS_QUEUE = AnalysisQueue(MAX_ANALYSIS_ACTIVE, MAX_ANALYSIS_PENDING)
 
 
 class ScoreRequest(BaseModel):
@@ -140,6 +203,7 @@ def health() -> dict:
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "ffprobe": bool(shutil.which("ffprobe")),
         "detectors": describe_detectors(),
+        "analysisQueue": _ANALYSIS_QUEUE.snapshot(),
     }
 
 
@@ -333,7 +397,8 @@ def score(request: ScoreRequest) -> dict:
     try:
         target = from_map(request.name, request.stages)
         control = from_map(request.control_name or "control", request.control_stages) if request.control_stages else None
-        result = _run(target, control)
+        with _ANALYSIS_QUEUE.reserve():
+            result = _run(target, control)
     except (StageError, AudioToolError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -352,7 +417,8 @@ def analyze_stages(request: AnalyzePathRequest) -> dict:
             target = StageSet(name=request.name, stages=target.stages)
         if control is not None and request.control_name:
             control = StageSet(name=request.control_name, stages=control.stages)
-        result = _run(target, control)
+        with _ANALYSIS_QUEUE.reserve():
+            result = _run(target, control)
     except (StageError, AudioToolError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -369,7 +435,8 @@ def analyze(request: FileAnalyzeRequest) -> dict:
         paths.append(request.path)
     if not paths:
         raise HTTPException(status_code=400, detail="분석할 파일 또는 폴더 경로가 필요합니다.")
-    result = analyze_files(paths, recursive=request.recursive)
+    with _ANALYSIS_QUEUE.reserve():
+        result = analyze_files(paths, recursive=request.recursive)
     if result["inputCount"] == 0:
         raise HTTPException(status_code=400, detail="지원하는 음원 파일을 찾지 못했습니다.")
     if request.save:
@@ -380,40 +447,57 @@ def analyze(request: FileAnalyzeRequest) -> dict:
     return result
 
 
-@app.post("/api/analyze/upload")
-async def analyze_upload(files: list[UploadFile] = File(...)) -> dict:
+async def _store_uploads(files: list[UploadFile]) -> tuple[list[Path], list[str]]:
     if not files:
         raise HTTPException(status_code=400, detail="분석할 음원 파일이 필요합니다.")
     root = SCRATCH_DIR / "uploads"
     root.mkdir(parents=True, exist_ok=True)
-    paths = []
-    original_names = []
-    for index, upload in enumerate(files):
-        original = Path(upload.filename or f"upload-{index}").name
-        suffix = Path(original).suffix.lower()
-        if suffix not in {".wav", ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif"}:
-            continue
-        target = root / f"{uuid4().hex}-{original}"
-        size = 0
-        with target.open("wb") as output:
-            while chunk := await upload.read(1024 * 1024):
-                size += len(chunk)
-                if size > 500 * 1024 * 1024:
-                    target.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다: {original}")
-                output.write(chunk)
-        paths.append(target)
-        original_names.append(original)
+    paths: list[Path] = []
+    original_names: list[str] = []
+    total_size = 0
+    try:
+        for index, upload in enumerate(files):
+            original = Path(upload.filename or f"upload-{index}").name
+            suffix = Path(original).suffix.lower()
+            if suffix not in {".wav", ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif"}:
+                continue
+            target = root / f"{uuid4().hex}-{original}"
+            paths.append(target)
+            size = 0
+            with target.open("wb") as output:
+                while chunk := await upload.read(1024 * 1024):
+                    size += len(chunk)
+                    total_size += len(chunk)
+                    if size > MAX_UPLOAD_FILE_BYTES:
+                        raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다: {original}")
+                    if total_size > MAX_UPLOAD_TOTAL_BYTES:
+                        raise HTTPException(status_code=413, detail="한 번에 업로드한 파일의 전체 용량이 1 GB를 초과했습니다.")
+                    output.write(chunk)
+            original_names.append(original)
+    except Exception:
+        for path in paths:
+            path.unlink(missing_ok=True)
+        raise
     if not paths:
         raise HTTPException(status_code=400, detail="지원하는 음원 파일을 찾지 못했습니다.")
-    result = analyze_files(paths, recursive=False)
+    return paths, original_names
+
+
+@app.post("/api/analyze/upload")
+async def analyze_upload(files: list[UploadFile] = File(...)) -> dict:
+    paths, original_names = await _store_uploads(files)
+    with _ANALYSIS_QUEUE.reserve():
+        result = analyze_files(paths, recursive=False)
     for item, original in zip(result["results"], original_names):
         item["name"] = original
     save_history(result)
     return result
 
 
-def _progress_response(run: Callable[[Callable[[dict], None]], None]) -> StreamingResponse:
+def _progress_response(
+    run: Callable[[Callable[[dict], None]], None],
+    reservation: AnalysisReservation,
+) -> StreamingResponse:
     """Run `run(emit)` on a worker thread and stream its events as SSE.
 
     The detector work is CPU bound and blocks, so it cannot emit from inside a
@@ -424,7 +508,8 @@ def _progress_response(run: Callable[[Callable[[dict], None]], None]) -> Streami
 
     def worker() -> None:
         try:
-            run(events.put)
+            with reservation:
+                run(events.put)
         except Exception as error:  # noqa: BLE001
             events.put({"error": str(error) or "분석 중 오류가 발생했습니다."})
         finally:
@@ -477,35 +562,12 @@ def analyze_progress(request: FileAnalyzeRequest) -> StreamingResponse:
         save_history(result)
         emit({"result": result})
 
-    return _progress_response(run)
+    return _progress_response(run, _ANALYSIS_QUEUE.reserve())
 
 
 @app.post("/api/analyze/upload/progress")
 async def analyze_upload_progress(files: list[UploadFile] = File(...)) -> StreamingResponse:
-    if not files:
-        raise HTTPException(status_code=400, detail="분석할 음원 파일이 필요합니다.")
-    root = SCRATCH_DIR / "uploads"
-    root.mkdir(parents=True, exist_ok=True)
-    paths = []
-    original_names = []
-    for index, upload in enumerate(files):
-        original = Path(upload.filename or f"upload-{index}").name
-        suffix = Path(original).suffix.lower()
-        if suffix not in {".wav", ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif"}:
-            continue
-        target = root / f"{uuid4().hex}-{original}"
-        size = 0
-        with target.open("wb") as output:
-            while chunk := await upload.read(1024 * 1024):
-                size += len(chunk)
-                if size > 500 * 1024 * 1024:
-                    target.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다: {original}")
-                output.write(chunk)
-        paths.append(target)
-        original_names.append(original)
-    if not paths:
-        raise HTTPException(status_code=400, detail="지원하는 음원 파일을 찾지 못했습니다.")
+    paths, original_names = await _store_uploads(files)
 
     def run(emit: Callable[[dict], None]) -> None:
         def on_progress(done: int, total: int, path: Path | None) -> None:
@@ -519,7 +581,7 @@ async def analyze_upload_progress(files: list[UploadFile] = File(...)) -> Stream
         save_history(result)
         emit({"result": result})
 
-    return _progress_response(run)
+    return _progress_response(run, _ANALYSIS_QUEUE.reserve())
 
 
 @app.get("/api/reports")
@@ -539,23 +601,74 @@ def list_reports() -> dict:
     return {"reports": items}
 
 
-@app.get("/api/reports/{name}")
-def read_report(name: str) -> Any:
+def _report_path(name: str) -> Path:
     if "/" in name or "\\" in name or ".." in name:
         raise HTTPException(status_code=400, detail="리포트 이름이 올바르지 않습니다.")
     path = REPORTS_DIR / name
     if not path.is_file():
         raise HTTPException(status_code=404, detail="리포트를 찾을 수 없습니다.")
+    return path
+
+
+def _report_csv(payload: dict) -> str:
+    if isinstance(payload.get("results"), list):
+        rows = payload["results"]
+    elif isinstance(payload.get("pairs"), list):
+        rows = payload["pairs"]
+    else:
+        rows = [payload]
+    detector_names = sorted({
+        str(detector.get("name"))
+        for row in rows
+        if isinstance(row, dict)
+        for detector in row.get("detectors", [])
+        if detector.get("name")
+    })
+    fieldnames = ["name", "file", "status", "totalScore", "confidence", "conclusion", *[f"detector:{name}" for name in detector_names]]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        detectors = {
+            str(item.get("name")): round(float(item["score"]) * 100.0, 4)
+            for item in row.get("detectors", [])
+            if isinstance(item, dict) and item.get("name") and isinstance(item.get("score"), (int, float))
+        }
+        record = {key: row.get(key, "") for key in fieldnames[:6]}
+        record.update({f"detector:{name}": detectors.get(name, "") for name in detector_names})
+        writer.writerow(record)
+    return "\ufeff" + output.getvalue()
+
+
+@app.get("/api/reports/{name}/export")
+def export_report(name: str, format: str = "json") -> Response:
+    path = _report_path(name)
+    export_format = format.lower()
+    if export_format == "json":
+        return FileResponse(path, media_type="application/json", filename=path.name)
+    if export_format != "csv":
+        raise HTTPException(status_code=400, detail="내보내기 형식은 json 또는 csv여야 합니다.")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"리포트를 읽지 못했습니다: {exc}") from exc
+    filename = f"{path.stem}.csv"
+    return Response(
+        content=_report_csv(payload).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@app.get("/api/reports/{name}")
+def read_report(name: str) -> Any:
+    path = _report_path(name)
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 @app.delete("/api/reports/{name}")
 def delete_report(name: str) -> dict:
-    if "/" in name or "\\" in name or ".." in name:
-        raise HTTPException(status_code=400, detail="리포트 이름이 올바르지 않습니다.")
-    path = REPORTS_DIR / name
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="리포트를 찾을 수 없습니다.")
+    path = _report_path(name)
     try:
         path.unlink()
     except OSError as exc:
