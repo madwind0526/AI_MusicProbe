@@ -277,6 +277,34 @@ function detectorTimeline(item, fallbackDuration) {
   return `<div class="detector-timeline" role="img" aria-label="${escapeHtml(item.label || item.name)} 구간별 탐지 점수"><div class="detector-timeline-track" style="--timeline-lanes:${laneEnds.length}">${bars}</div><div class="detector-timeline-axis"><span>0:00</span><span>${shortTime(duration)}</span></div></div>`;
 }
 
+// scoreInfo.components.method stores the internal versioned id (probe/file_analysis.py's
+// METHOD_LABELS), so it needs its own Korean label here - the same 5 entries as the ensemble
+// dropdown, keyed by that long id instead of the short method value.
+const ENSEMBLE_METHOD_ID_LABELS = {
+  'detector-geometric-mean-v1': '기하평균',
+  'detector-arithmetic-mean-v1': '산술평균',
+  'detector-median-v1': '중앙값',
+  'detector-weighted-geometric-mean-v1': '가중 기하평균',
+  'detector-robust-mean-v1': '이상치 제외 평균',
+};
+
+function scoreMethodHeading(result) {
+  const components = result.scoreInfo?.components || {};
+  const methodLabel = ENSEMBLE_METHOD_ID_LABELS[components.method] || components.method;
+  return `최종 분석 점수${methodLabel ? ` (${escapeHtml(methodLabel)} 사용)` : ''}`;
+}
+
+function scoreMethodNote(result) {
+  const components = result.scoreInfo?.components || {};
+  const detectorLabel = (name) => (result.detectors || []).find((item) => item.name === name)?.label || name;
+  const outliers = (components.outliersExcluded || []).map(detectorLabel);
+  const excluded = (components.excluded || []).map(detectorLabel);
+  const notes = [];
+  if (outliers.length) notes.push(`이상치로 제외됨: ${outliers.join(', ')}`);
+  if (excluded.length) notes.push(`평가만(Total 미반영): ${excluded.join(', ')}`);
+  return notes.length ? `<small class="score-method-note">${escapeHtml(notes.join(' · '))}</small>` : '';
+}
+
 function openResult(result) {
   const panel = $('result-dialog-body');
   $('result-dialog-title').textContent = result.name || '측정 파라미터';
@@ -295,7 +323,7 @@ function openResult(result) {
       const optionText = Object.entries(item.options || {}).map(([key, value]) => `${(item.optionLabels || {})[key] || key} ${value}`).join(' · ');
       return `<div class="detector-result-block"><div class="detector-row"><span>${escapeHtml(item.label || item.name)}${tags.length ? ` · ${escapeHtml(tags.join(' · '))}` : ''}<small class="detector-row-options">${escapeHtml(optionText)}</small></span><strong>${Math.round(Number(item.score || 0) * 100)}</strong></div>${detectorTimeline(item, duration)}</div>`;
     }).join('');
-    panel.innerHTML = `<div class="result-overview"><div class="score-ring ${scoreBand(score)}" style="--score:${score}"><span>${score.toFixed(1)}</span><small>TOTAL</small></div><div class="result-overview-copy"><h3>최종 분석 점수</h3><p>${escapeHtml(compactConclusion(result))}</p><small>신뢰 지표 ${Number(result.confidence || 0).toFixed(1)} · 확률값이 아닌 잠정 종합 점수</small></div>${detectorScoreSummary(result)}</div>
+    panel.innerHTML = `<div class="result-overview"><div class="score-ring ${scoreBand(score)}" style="--score:${score}"><span>${score.toFixed(1)}</span><small>TOTAL</small></div><div class="result-overview-copy"><h3>${scoreMethodHeading(result)}</h3><p>${escapeHtml(compactConclusion(result))}</p><small>신뢰 지표 ${Number(result.confidence || 0).toFixed(1)} · 확률값이 아닌 잠정 종합 점수</small>${scoreMethodNote(result)}</div>${detectorScoreSummary(result)}</div>
       <section class="source-information"><h3>원본 파일 정보</h3><p title="${escapeHtml(result.file)}">${escapeHtml(result.file)}</p></section>
       <section class="audio-visuals"><div class="audio-chart waveform-chart compare-waveform" id="waveform-chart"><svg id="detail-waveform-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-label="전체 음원 파형, 재생 위치 0%"><line class="waveform-loading" x1="0" x2="1000" y1="50" y2="50" /></svg></div><div class="compare-spectrogram"><div class="compare-frequency-axis">${frequencyAxisLabels(result.parameters?.meta?.sampleRate).map((label) => `<span>${label}</span>`).join('')}</div><div class="compare-spectrogram-body"><div class="audio-chart spectrogram-chart compare-spectrogram-plot"><img class="visual-base" src="/api/audio/spectrogram?${query}" alt="음원 스펙트로그램" loading="lazy"><div class="visual-played" id="spectrogram-played"><img src="/api/audio/spectrogram?${query}" alt="" loading="lazy"></div><div class="visual-playhead" id="spectrogram-playhead"></div></div><div class="compare-time-axis" id="compare-time-axis"><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span><span>0:00</span></div></div><div class="compare-db-axis"><span>0</span><i></i><span>-100</span><small>dBFS</small></div></div><audio id="detail-audio" preload="metadata" src="/api/media?${query}"></audio><div class="audio-seek"><span id="audio-current">0:00</span><input id="audio-seek-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="오디오 재생 위치"><span id="audio-duration">0:00</span></div><div class="audio-controls"><button type="button" data-audio-action="back" title="10초 뒤로" aria-label="10초 뒤로">&lt;&lt;</button><button type="button" class="audio-play" data-audio-action="play" title="재생" aria-label="재생"><svg viewBox="0 0 24 24"><path d="m9 6 10 6-10 6z"/></svg></button><button type="button" data-audio-action="forward" title="10초 앞으로" aria-label="10초 앞으로">&gt;&gt;</button><button type="button" class="audio-speed" data-audio-action="speed" title="재생 속도" aria-label="재생 속도">1x</button><span class="audio-volume-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6l-5 4zM17 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg></span><input class="audio-volume" id="audio-volume-slider" type="range" min="0" max="1" step="0.01" value="1" aria-label="볼륨"></div></section>
       <section class="detail-section"><h3>측정 파라미터</h3><div class="details-grid">${metrics}</div></section>
@@ -572,6 +600,9 @@ function resourceMetric(label, value, percent) {
 }
 
 async function loadResources() {
+  // The top bar showing this is visible on every page, but the tab itself may not be
+  // (minimized, backgrounded) - skip the request entirely rather than polling into the void.
+  if (document.visibilityState !== 'visible') return;
   try {
     const data = await (await fetch('/api/resources')).json();
     const gpu = data.gpu;
@@ -676,6 +707,10 @@ function renderEnsemblePanel() {
   select.value = ensemble.method;
   const active = ensemble.methods.find((method) => method.value === ensemble.method);
   $('ensemble-hint').textContent = active ? active.hint : '';
+  // The dropdown only ever shows the *selected* method's hint above - this reference list keeps
+  // every method's explanation and worked example visible at once, so switching methods to compare
+  // them isn't required just to read how each one works.
+  $('ensemble-methods-reference').innerHTML = ensemble.methods.map((method) => `<div class="ensemble-method-entry${method.value === ensemble.method ? ' active' : ''}"><h4>${escapeHtml(method.label)}${method.value === ensemble.method ? ' <span class="ensemble-method-current">현재 선택됨</span>' : ''}</h4><p>${escapeHtml(method.hint)}</p></div>`).join('');
   const weights = $('ensemble-weights');
   const weighted = ensemble.method === 'weightedGeometric';
   weights.hidden = !weighted;
@@ -711,6 +746,18 @@ function optionRow(option, value) {
   return `<div class="option-row"><label for="detector-opt-${escapeHtml(option.key)}"><span>${escapeHtml(option.label)}${option.unit ? ` (${escapeHtml(option.unit)})` : ''}</span><small>${escapeHtml(option.hint)}</small></label><div class="option-control">${control}${tag ? `<span class="effect-tag ${option.effect === 'verdict' ? 'effect-verdict' : ''}">${escapeHtml(tag)}</span>` : ''}</div></div>`;
 }
 
+function syncDetectorOptionDependencies() {
+  const dialog = $('detector-options-dialog');
+  if (dialog.dataset.detectorName !== 'sonics') return;
+  const body = $('detector-options-body');
+  const aggregation = body.querySelector('[data-option-key="aggregation"]');
+  const topK = body.querySelector('[data-option-key="topK"]');
+  if (!aggregation || !topK) return;
+  const disabled = aggregation.value !== 'topk';
+  topK.disabled = disabled;
+  topK.closest('.option-row')?.classList.toggle('option-disabled', disabled);
+}
+
 function openDetectorOptions(name) {
   const schema = detectorSchema(name);
   if (!schema) return toast('탐지기 설정을 불러오지 못했습니다.');
@@ -727,6 +774,8 @@ function openDetectorOptions(name) {
   $('detector-options-dialog').dataset.detectorName = name;
   $('detector-options-dialog').hidden = false;
   document.body.classList.add('dialog-open');
+  syncDetectorOptionDependencies();
+  $('detector-options-body').querySelector('[data-option-key="aggregation"]')?.addEventListener('change', syncDetectorOptionDependencies);
 }
 
 function collectDetectorOptions() {

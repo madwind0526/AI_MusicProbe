@@ -2,10 +2,10 @@
 
 ## Current Wave
 
-- **Wave:** 29
-- **Status:** Done — 점수 구간 시작점 정렬 및 왼쪽 작업 현황 Box
+- **Wave:** 30
+- **Status:** Done — favicon 추가, SONICS `중앙값(기본)` 라벨, ensemble robustMean 확정 후 90곡 anchor 재계산·README 갱신
 - **Cache Status:** CLEAN
-- **Last Checkpoint:** 2026-09-27 — 구간 제목·첫 숫자 시작점과 왼쪽 작업 현황 Box 구조를 브라우저에서 확인
+- **Last Checkpoint:** 2026-09-27 — `analyze_files` 직접 호출로 90곡 재분석(실 이력 미변경), anchor-corpus-evaluation.json/.csv·README 표 갱신 확인
 
 ## Wave History
 
@@ -40,6 +40,7 @@
 | 27 | E/J/K 균형 90곡 평가, 업로드·대기열 제한, 진행률·내보내기·sticky 헤더 | Done |
 | 28 | 설정의 1–5구간 제목과 범위 텍스트 중앙 정렬 | Done |
 | 29 | 구간 제목·첫 숫자 시작점 정렬, 왼쪽 작업 현황 Box와 yy/zz 상태 연결 | Done |
+| 30 | favicon 추가, SONICS `중앙값(기본)` 라벨, ensemble robustMean 확정 후 90곡 anchor 재계산·README 갱신 | Done |
 
 ## Session Notes
 
@@ -57,3 +58,5 @@
 - 리포트 목록은 생성 시각을 표시하며 시간·제목·용량으로 정렬하고 개별 삭제할 수 있다.
 - 배치 분석 1회당 리포트 1개가 생성되고 그 안에 파일별 결과가 들어간다. 이력은 파일별 카드로 표시한다.
 - 음원 비교는 AI Music Probe 내부 모듈이며 SongYUE2 실행 파일이나 소스 경로를 런타임에 참조하지 않는다.
+- ensemble method 기본값은 `robustMean`(이상치 제외 평균). n=3에서 median이 항상 가운데 값이라, 셋이 서로 고르게 떨어져 있으면(예: 0.0/20.8/99.8) MAD 컷오프(3.5)를 아무도 못 넘어 전원 평균으로 떨어질 수 있다 — 버그 아님, 사용자 확인 후 임계값 유지로 결정.
+- anchor 코퍼스(90곡)를 재계산할 땐 `scratch/evaluate_anchor_corpus.py`의 통계 함수를 재사용하되 `analyze_batch`(HTTP `save:true`) 대신 `probe.file_analysis.analyze_files`를 직접 호출한다 — 그래야 실 분석 이력(`historyLimit` 트림)을 건드리지 않는다.

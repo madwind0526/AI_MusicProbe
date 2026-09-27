@@ -16,7 +16,7 @@ def test_defaults_match_the_locked_model_specs() -> None:
 
     assert defaults["sonics"]["maxWindows"] == 24
     assert defaults["sonics"]["hopSeconds"] == 2.5
-    assert defaults["sonics"]["aggregation"] == "topk"
+    assert defaults["sonics"]["aggregation"] == "median"
     assert defaults["sonics"]["topK"] == 3
     assert defaults["lofcz"]["maxDurationS"] == 300
     assert defaults["lofcz"]["analysisPosition"] == "start"
@@ -41,7 +41,7 @@ def test_unknown_keys_and_values_fall_back_to_defaults() -> None:
     assert result["detectors"]["sonics"]["topK"] == 3
     assert "unknown" not in result["detectors"]["sonics"]
     assert "nope" not in result["detectors"]
-    assert result["ensemble"]["method"] == "geometric"
+    assert result["ensemble"]["method"] == "robustMean"
     assert result["ensemble"]["weights"] == {"lofcz": 10.0}
 
 
@@ -110,7 +110,7 @@ def test_describe_exposes_locked_values_and_choice_labels() -> None:
     assert aggregation["default"] == "top3"
     assert aggregation["choices"][2] == {"value": "top3", "label": "상위 3개 평균 (기본)"}
     assert {method["value"] for method in described["ensemble"]["methods"]} == {
-        "geometric", "arithmetic", "median", "weightedGeometric",
+        "geometric", "arithmetic", "median", "weightedGeometric", "robustMean",
     }
 
 
@@ -147,7 +147,7 @@ def test_corrupt_file_falls_back_to_defaults(tmp_path, monkeypatch) -> None:
     assert options.load() == options.normalize(None)
 
 
-@pytest.mark.parametrize("method", ["geometric", "arithmetic", "median", "weightedGeometric"])
+@pytest.mark.parametrize("method", ["geometric", "arithmetic", "median", "weightedGeometric", "robustMean"])
 def test_every_advertised_method_is_accepted(method: str) -> None:
     assert options.normalize({"ensemble": {"method": method}})["ensemble"]["method"] == method
 

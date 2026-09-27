@@ -199,8 +199,8 @@ cd C:\Claude\ai-music-probe
 | `scratch/mastering_delta.py` | Suno 원본/마스터 50쌍 페어링 + delta |
 | `scratch/corpus_sweep.py` | 코퍼스별 지표 분포 |
 | `scratch/comb_validate.py` | comb 감도/특이도 검증 |
-| `scratch/stability_check.py` | 동일 PCM container 안정성 |
-| `scratch/grid_check.py` | DSP 개발 검사 |
+
+`scratch/stability_check.py`, `scratch/grid_check.py`와 일회성 브라우저 검증 스크립트(`browser_*_check.py`, `flow_check.py`, `flow3_check.py`, `run_flows.py`, `cdp_client.py`)·그 결과물(`shot-*.png`, `flow_result.txt`, `run_flows.log`)은 목적을 다해 2026-09-27에 정리했다. 결론은 각각 [PATTERNS.md](memory-bank/knowledge/PATTERNS.md)·[trouble-shooting.md](memory-bank/knowledge/trouble-shooting.md)에 남아 있다.
 
 ---
 
@@ -234,3 +234,23 @@ cd C:\Claude\ai-music-probe
 WebUI에는 탐지기별 점수·상태와 구간 타임라인, 파일별 분석 진행률, 5개 점수 구간 설정, 리포트 JSON/CSV 내보내기, 분석 이력 고정 헤더를 반영했다. 서버에는 업로드 크기 제한과 분석 대기열 제한을 추가했다. 전체 테스트는 72개가 통과했다.
 
 설정의 다섯 구간 카드는 각 제목의 왼쪽 시작점을 첫 범위 숫자와 맞췄다. 왼쪽 메뉴의 최근 작업 이력과 음원 비교 사이에는 분석 중 `작업 진행 중…`과 `yy/zz`를 보여주는 작업 현황 Box를 추가했고, 완료·오류 상태도 같은 위치에서 갱신한다.
+
+---
+
+## 11. ensemble 기본값 확정 후 90곡 anchor 재계산 (2026-09-27)
+
+ensemble method 기본값이 `robustMean`(이상치 제외 평균)으로 확정된 뒤, 같은 90곡 anchor 코퍼스를 현재 로직으로 다시 분석했다. `scratch/evaluate_anchor_corpus.py`의 통계 함수를 그대로 재사용하되, 실제 분석 이력을 건드리지 않도록 `analyze_batch`(HTTP `save:true`) 대신 `probe.file_analysis.analyze_files`를 직접 호출했다.
+
+| 집단 | 최솟값 | 중앙값 | 최댓값 |
+|------|-------:|-------:|-------:|
+| 인간 원본 | 0.0 | 0.4 | 26.6 |
+| 인간 Mastering-1 | 0.0 | 0.1 | 25.6 |
+| AI E | 51.5 | 82.1 | 99.6 |
+| AI J | 44.2 | 58.3 | 99.4 |
+| AI K | 43.2 | 53.5 | 97.3 |
+
+인간 최댓값(26.6)과 AI 최솟값(43.2) 사이 간격은 6.6점에서 16.6점으로 넓어졌고, 50점 임계값 balanced accuracy는 71.7%→88.3%로 개선됐다(민감도 76.7%, 특이도 100%). isotonic 보정은 5-fold balanced accuracy가 여전히 99%대로 높지만 레벨 2개로 압축되는 문제가 재현되어 런타임에는 적용하지 않는다. 다만 인간 원곡 쪽에도 20점대 오탐 후보(`George Michael - Outside` 26.6 등)가 새로 나타나 개별 확인이 필요하다. 상세는 `scratch/evaluations/anchor-corpus-evaluation.json`/`.csv`와 README `90곡 anchor 교차 검증` 절 참고.
+
+이 과정에서 `_robust_mean`([probe/file_analysis.py](probe/file_analysis.py))이 n=3에서 median(가운데 값)을 기준으로 이상치를 거른다는 점을 재확인했다. 세 탐지기 점수가 서로 고르게 떨어져 있으면(예: SONICS 20.8 / lofcz 0.0 / ArtifactNet 99.8) 낮은 값이 오히려 median에 더 가까워 아무것도 제외되지 않을 수 있다 — 버그가 아니라 n=3 통계의 구조적 한계이며, 사용자 확인 후 임계값은 그대로 유지하기로 했다. 근거는 [trouble-shooting.md](memory-bank/knowledge/trouble-shooting.md) 참고.
+
+SONICS 구간 집계 선택지에는 `중앙값 (기본)` 표시를 추가했고, 정적 파일 마운트에 `web/favicon.ico`를 추가해 404를 없앴다. 목적을 다한 일회성 개발용 스크립트(`scratch/browser_*_check.py`, `flow_check.py`, `flow3_check.py`, `run_flows.py`, `grid_check.py`, `stability_check.py`, `cdp_client.py`)와 그 산출물을 정리했다.

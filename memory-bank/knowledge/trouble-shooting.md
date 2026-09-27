@@ -289,4 +289,17 @@ When a fixed endpoint such as `/api/audio/peaks` is declared after `/api/audio/{
 - 인간 60개 점수가 모두 2.3 이하이고 AI 30개 점수가 모두 8.9 이상인 90곡 표본에서는 그룹 교차 검증 성능이 높아도 class-balanced isotonic 보정이 출력값을 0과 100 두 단계로 압축했다.
 - 분류 지표 개선만 보고 보정기를 적용하면 연속 Total의 곡별 순위와 미세 차이가 사라진다.
 - 런타임 후보는 교차 검증 지표와 함께 보정 출력의 고유 단계 수를 검사해야 한다. 현재는 최소 5단계를 요구하고, 부족하면 raw Total을 유지한다.
+
+## robustMean(이상치 제외 평균)은 탐지기 3개가 서로 다 떨어져 있으면 아무도 못 거른다 (2026-09-27)
+
+- `_robust_mean`([probe/file_analysis.py:73](../../probe/file_analysis.py))은 median 기준 MAD로 이상치를 거른다. n=3일 때 median은 항상 가운데 값 자체이므로, MAD는 사실상 `min(중앙값-최솟값, 최댓값-중앙값)`으로 정해진다.
+- 실제 사례(K0062): SONICS 20.8 / lofcz 0.0 / ArtifactNet 99.8. median=20.8이라 **0.0이 99.8보다 median에 더 가깝다**(거리 20.8 vs 79.0). z-점수도 0.0쪽(≈-0.67)보다 99.8쪽(≈2.57)이 더 크게 나와, 사람이 보기엔 0.0이 의심스러워도 통계적으로는 오히려 99.8이 이상치 후보다. 둘 다 3.5 컷오프를 못 넘어 결국 아무것도 제외되지 않고 3개 평균(40.2)으로 떨어졌다.
+- 즉 "둘이 가깝고 하나만 멀리 떨어진" 패턴(예: 0.854/0.996/0.0 — 테스트로 고정된 케이스)에서만 이 방식이 의도대로 하나를 제외한다. 세 값이 서로 고르게 흩어져 있으면 중립적 통계 규칙으로는 "탐지기 점수가 낮은 쪽을 우선 배제"하는 결론이 나오지 않는다 — 그건 통계가 아니라 정책(어떤 탐지기를 더 신뢰할지) 문제다.
+- 결론: 이 현상을 발견해도 `_robust_mean`은 버그가 아니다. 특정 탐지기를 더 신뢰하고 싶으면 `weightedGeometric` + 가중치로 명시적으로 정책화할 것. 이상치 제외 임계값(`ROBUST_Z_THRESHOLD`)을 낮추는 시도는 방향을 예측하기 어렵다(median에서 먼 쪽이 항상 걸리므로, 낮은 값이 아니라 높은 값이 먼저 걸릴 수 있다).
+
+## 앙상블 결합 방식이 바뀌면 anchor 코퍼스 재계산 결과가 크게 움직인다 (2026-09-27)
+
+- `detector-options.json`의 ensemble method가 `robustMean`(기본값)으로 확정된 뒤 90곡 anchor를 재계산하니 분포가 크게 달라졌다: 인간 원곡 최댓값 1.5→26.6, AI 최솟값 8.9→43.2로 인간·AI 간격이 6.6점에서 16.6점으로 넓어졌다(방향은 개선). 50점 임계값 balanced accuracy는 71.7%→88.3%.
+- 재계산은 `scratch/evaluate_anchor_corpus.py`의 로직을 그대로 재사용하되, `analyze_batch`(HTTP POST `/api/analyze/progress`, `save: true`)를 쓰지 않고 `probe.file_analysis.analyze_files`를 직접 호출해서 수행했다. 이유: HTTP 경로는 결과를 `save_history()`로 실제 분석 이력에 적재하고, `historyLimit`을 넘기면 오래된 항목을 디스크에서 지운다. 사용자의 실 이력을 건드리지 않고 `scratch/evaluations/anchor-corpus-evaluation.json`만 갱신하려면 저장 없는 직접 호출 경로를 써야 한다.
+- 총점 계산 로직이나 detector-options 기본값이 바뀌면 README의 anchor 표·`scratch/evaluations/*.json`이 곧바로 stale해진다. 다음에 또 바뀌면 같은 방식(직접 `analyze_files` 호출 + `evaluate_anchor_corpus`의 통계 함수 재사용)으로 재생성할 것.
 - 인간 hard negative와 낮은 점수의 AI 외부 표본이 추가된 뒤 다시 적합해야 한다.

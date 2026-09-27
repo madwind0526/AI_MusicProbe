@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import shutil
 import threading
@@ -700,9 +701,24 @@ if WEB_DIR.is_dir():
     app.mount("/", NoCacheStatic(directory=WEB_DIR, html=True), name="web")
 
 
+class _QuietPollingEndpoints(logging.Filter):
+    """The top bar polls /api/resources and /api/history/signature every few seconds, a history
+    change triggers a plain /api/history refetch, and SongYUE2's Settings page polls /health (every
+    3s while open, every 1s while its "server starting" state is shown) to drive its running/off
+    badge - useful traffic, but at this rate it drowns out every other request in the console.
+    Everything else still logs normally."""
+
+    _quiet_markers = ("GET /api/resources ", "GET /api/history ", "GET /api/history/signature ", "GET /health ")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not any(marker in message for marker in self._quiet_markers)
+
+
 def main() -> None:
     import uvicorn
 
+    logging.getLogger("uvicorn.access").addFilter(_QuietPollingEndpoints())
     print(f"ai-music-probe {__version__}  ->  http://{HOST}:{PORT}")
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")
 

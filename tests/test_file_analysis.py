@@ -19,11 +19,13 @@ def test_expand_inputs_returns_supported_files_once(tmp_path: Path) -> None:
 
 
 def test_score_requires_detector_corroboration() -> None:
+    # Geometric mean specifically: this is its defining trait, not the app-wide default's.
     total, confidence, _conclusion, detail = _score(
         [
             {"name": "sonics", "score": 0.81},
             {"name": "lofcz", "score": 0.0},
-        ]
+        ],
+        {"method": "geometric", "weights": {}},
     )
 
     assert total is not None
@@ -43,6 +45,49 @@ def test_score_stays_high_when_detectors_agree() -> None:
     assert total is not None
     assert total > 90
     assert confidence > 70
+
+
+def test_robust_mean_drops_the_single_outlier_and_averages_the_rest() -> None:
+    total, _confidence, _conclusion, detail = _score(
+        [
+            {"name": "sonics", "score": 0.854},
+            {"name": "artifactnet", "score": 0.996},
+            {"name": "lofcz", "score": 0.0},
+        ],
+        {"method": "robustMean", "weights": {}},
+    )
+
+    assert detail["outliersExcluded"] == ["lofcz"]
+    # (0.854 + 0.996) / 2, with lofcz's 0 dropped rather than dragging the mean down.
+    assert total == pytest.approx(92.5, abs=0.05)
+
+
+def test_robust_mean_keeps_everyone_when_scores_broadly_agree() -> None:
+    total, _confidence, _conclusion, detail = _score(
+        [
+            {"name": "sonics", "score": 0.85},
+            {"name": "artifactnet", "score": 0.90},
+            {"name": "lofcz", "score": 0.99},
+        ],
+        {"method": "robustMean", "weights": {}},
+    )
+
+    assert detail["outliersExcluded"] == []
+    assert total == pytest.approx(91.3, abs=0.05)
+
+
+def test_robust_mean_with_two_detectors_never_drops_either() -> None:
+    # With only two points there is no reliable "which one is the outlier", so both are kept.
+    total, _confidence, _conclusion, detail = _score(
+        [
+            {"name": "sonics", "score": 0.9},
+            {"name": "lofcz", "score": 0.0},
+        ],
+        {"method": "robustMean", "weights": {}},
+    )
+
+    assert detail["outliersExcluded"] == []
+    assert total == pytest.approx(45.0, abs=0.05)
 
 
 def test_evaluation_only_detector_is_scored_but_not_combined() -> None:

@@ -57,7 +57,32 @@ METHOD_LABELS = {
     "arithmetic": "detector-arithmetic-mean-v1",
     "median": "detector-median-v1",
     "weightedGeometric": "detector-weighted-geometric-mean-v1",
+    "robustMean": "detector-robust-mean-v1",
 }
+
+#: Modified Z-score cutoff (Iglewicz & Hoaglin's rule of thumb) for "robustMean": a
+#: detector further than this from the group's median (in MAD units) is dropped
+#: before averaging the rest. MAD is used instead of mean/std because with only a
+#: handful of detectors, an actual outlier inflates a plain standard deviation
+#: enough to hide itself from a mean/std-based rule (verified against this app's
+#: own 3-detector case: a lofcz score of 0 next to ~0.85/~0.99 survives a 3-sigma
+#: mean/std cut, and even 1-sigma then starts dropping detectors that plainly agree).
+ROBUST_Z_THRESHOLD = 3.5
+
+
+def _robust_mean(values: np.ndarray, names: list[str]) -> tuple[float, list[str]]:
+    if values.size <= 2:
+        return float(np.mean(values)), []
+    median = float(np.median(values))
+    mad = float(np.median(np.abs(values - median)))
+    if mad == 0.0:
+        return float(np.mean(values)), []
+    z = 0.6745 * (values - median) / mad
+    keep = np.abs(z) <= ROBUST_Z_THRESHOLD
+    if not bool(keep.any()):
+        return float(np.mean(values)), []
+    outliers = [name for name, kept in zip(names, keep) if not kept]
+    return float(np.mean(values[keep])), outliers
 
 
 def _combine(values: np.ndarray, names: list[str], method: str, weights: dict[str, float]) -> float:
@@ -71,12 +96,14 @@ def _combine(values: np.ndarray, names: list[str], method: str, weights: dict[st
             raise ValueError("Total에 반영할 가중치가 없습니다.")
         normalized = weight_array / weight_array.sum()
         return float(np.exp(np.sum(normalized * np.log(np.maximum(values, GEOMETRIC_FLOOR)))))
+    if method == "robustMean":
+        return _robust_mean(values, names)[0]
     return float(np.prod(np.maximum(values, GEOMETRIC_FLOOR)) ** (1.0 / values.size))
 
 
 def _score(detector_results: list[dict], ensemble: dict | None = None) -> tuple[float | None, float, str, dict]:
     settings = ensemble if isinstance(ensemble, dict) else detector_options.current()["ensemble"]
-    method = str(settings.get("method", "geometric"))
+    method = str(settings.get("method", "robustMean"))
     weights = settings.get("weights") if isinstance(settings.get("weights"), dict) else {}
 
     valid = [
@@ -98,7 +125,11 @@ def _score(detector_results: list[dict], ensemble: dict | None = None) -> tuple[
     values = np.asarray([scores[name] for name in names], dtype=float)
     # The geometric mean rewards corroboration and prevents one saturated
     # detector from deciding the entire result. Corpus calibration follows later.
-    raw = _combine(values, names, method, weights)
+    outliers_excluded: list[str] = []
+    if method == "robustMean":
+        raw, outliers_excluded = _robust_mean(values, names)
+    else:
+        raw = _combine(values, names, method, weights)
     total = round(raw * 100.0, 1)
     agreement = 1.0 if values.size == 1 else max(0.0, 1.0 - float(np.std(values)) * 2.0)
     confidence = round(abs(raw - 0.5) * 2.0 * agreement * 100.0, 1)
@@ -108,6 +139,7 @@ def _score(detector_results: list[dict], ensemble: dict | None = None) -> tuple[
         "inputs": {name: round(value, 4) for name, value in scores.items()},
         "included": names,
         "excluded": excluded,
+        "outliersExcluded": outliers_excluded,
         "weights": {name: round(float(weights.get(name, 1.0)), 3) for name in names} if method == "weightedGeometric" else {},
         "agreement": round(agreement, 4),
     }

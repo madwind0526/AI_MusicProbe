@@ -167,3 +167,27 @@ ArtifactNet의 구간 수와 집계 방법을 E0001 네 곡으로 비교했다. 
 서버에는 파일별·요청 전체 업로드 제한, 활성·대기 분석 수 제한, JSON/CSV 리포트 내보내기를 추가했다. 전체 회귀 테스트 72개와 브라우저 주요 흐름을 확인했다.
 
 설정 화면의 점수 구간 제목은 각 구간의 시작 숫자 왼쪽과 정렬했다. 분석 중 진행률은 음원 분석 패널과 왼쪽 메뉴의 최근 작업 이력·음원 비교 사이 Box에 동시에 표시하며, `작업 진행 중…`, `5/10`, 완료·오류 상태를 갱신한다.
+
+---
+
+## R9. ensemble 기본값 `robustMean` 확정과 90곡 anchor 재계산 (2026-09-27)
+
+**가설(사용자 제기):** 이상치 제외 평균에서 SONICS 20.8 / lofcz 0.0 / ArtifactNet 99.8이 나온 파일(K0062)의 totalScore가 40.2로 나온 건, lofcz의 0.0을 이상치로 제외한 뒤 나머지 두 값을 3으로 나누는 나눗셈 버그다. `(99.8+20.8)/2`가 맞다.
+
+**조사:** 실제 리포트를 확인하니 `outliersExcluded: []` — 아무것도 제외되지 않았고 3개 평균이 그대로 쓰였다. `_robust_mean`은 n=3일 때 median이 항상 가운데 값이 되므로, median에서 먼 쪽이 이상치 후보가 된다. 이 케이스는 median(20.8)에서 0.0까지 거리(20.8)가 99.8까지 거리(79.0)보다 짧아, 중립적 통계로는 오히려 **99.8 쪽이 이상치에 더 가깝다**(z≈2.57 vs z≈-0.67, 둘 다 컷오프 3.5 미만이라 결국 제외 없음). "낮은 값을 우선 배제"는 통계가 아니라 정책 판단이라 사용자에게 확인을 구했다.
+
+**결정:** 사용자가 "임계값 완화 없이 현행 유지"를 선택. `ROBUST_Z_THRESHOLD`(3.5)와 `_robust_mean` 로직은 변경하지 않았다. 특정 탐지기를 더 신뢰하고 싶으면 `weightedGeometric` + 가중치로 명시적으로 정책화할 것.
+
+**부수 확인:** 이 조사 중 `detector-options.json`의 ensemble 기본값이 이미 `robustMean`으로 확정돼 있었고, 실제 분석 이력 100개도 이 방식으로 재계산돼 있었다(`scripts/recompute_totals.py`로 detector 원점수는 그대로 두고 totalScore만 일괄 재계산하는 방식). 이 변경이 90곡 anchor 코퍼스에는 아직 반영되지 않아, `scratch/evaluate_anchor_corpus.py`의 통계 함수를 재사용해 `probe.file_analysis.analyze_files`를 직접 호출하는 방식으로(실 분석 이력은 안 건드림) 90곡을 재분석했다.
+
+| 지표 | R8(이전) | R9(재계산) |
+|------|---------:|----------:|
+| 인간 원본 최댓값 | 1.5 | 26.6 |
+| 인간 Mastering-1 최댓값 | 2.3 | 25.6 |
+| AI 원본 최솟값 | 8.9 | 43.2 |
+| 인간·AI 간격 | 6.6 | 16.6 |
+| raw threshold balanced accuracy | 0.7167 | 0.8833 |
+| pair-group 5-fold 보정 balanced accuracy | 0.9917 | 0.9917 |
+| isotonic 레벨 수 | 2(붕괴) | 2(붕괴, 재현) |
+
+간격은 넓어지고 raw 정확도도 크게 개선됐지만, isotonic 붕괴는 여전히 재현된다. 인간 원곡 쪽에도 20점대 오탐 후보(`George Michael - Outside` 26.6)가 새로 나타나 다음 검증 대상에 추가했다. 상세는 `scratch/evaluations/anchor-corpus-evaluation.json`/`.csv`, README `90곡 anchor 교차 검증` 절 참고.
