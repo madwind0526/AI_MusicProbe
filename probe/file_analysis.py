@@ -139,7 +139,14 @@ def _score(detector_results: list[dict], ensemble: dict | None = None) -> tuple[
     else:
         raw = _combine(values, names, method, weights)
     total = round(raw * 100.0, 1)
-    agreement = 1.0 if agreement_values.size == 1 else max(0.0, 1.0 - float(np.std(agreement_values)) * 2.0)
+    # ddof=1 is the sample standard deviation. The population form (ddof=0)
+    # divides by n, which understates spread for the 2-3 detectors available and
+    # reports near-perfect agreement for two disagreeing scores. Confidence values
+    # produced before this change are therefore not directly comparable.
+    if agreement_values.size < 2:
+        agreement = 1.0
+    else:
+        agreement = max(0.0, 1.0 - float(np.std(agreement_values, ddof=1)) * 2.0)
     confidence = round(abs(raw - 0.5) * 2.0 * agreement * 100.0, 1)
     excluded = sorted(name for name in scores if name not in names)
     return total, confidence, _conclusion(total), {

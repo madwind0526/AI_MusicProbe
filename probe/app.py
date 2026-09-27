@@ -136,6 +136,57 @@ class AnalysisQueue:
 _ANALYSIS_QUEUE = AnalysisQueue(MAX_ANALYSIS_ACTIVE, MAX_ANALYSIS_PENDING)
 
 
+class AnalysisProgressTracker:
+    """Keep one shared progress view for the WebUI, API clients, and other tabs."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.tasks: dict[str, dict[str, Any]] = {}
+        self.last: dict[str, Any] = {
+            "state": "idle",
+            "done": 0,
+            "total": 0,
+            "name": "분석 요청을 기다리고 있습니다.",
+        }
+
+    def begin(self) -> str:
+        task_id = uuid4().hex
+        with self.lock:
+            self.tasks[task_id] = {"state": "queued", "done": 0, "total": 0, "name": "분석을 준비하고 있습니다."}
+        return task_id
+
+    def start(self, task_id: str) -> None:
+        with self.lock:
+            if task_id in self.tasks:
+                self.tasks[task_id].update(state="running", name="음원 목록을 확인하고 있습니다.")
+
+    def update(self, task_id: str, done: int, total: int, name: str | None) -> None:
+        with self.lock:
+            if task_id in self.tasks:
+                self.tasks[task_id].update(state="running", done=max(0, done), total=max(0, total), name=name or "음원을 분석하고 있습니다.")
+
+    def finish(self, task_id: str, state: str, done: int = 0, total: int = 0, name: str | None = None) -> None:
+        with self.lock:
+            self.tasks.pop(task_id, None)
+            self.last = {
+                "state": state,
+                "done": max(0, done),
+                "total": max(0, total),
+                "name": name or ("모든 분석 작업을 완료했습니다." if state == "completed" else "분석 중 오류가 발생했습니다."),
+            }
+
+    def snapshot(self) -> dict[str, Any]:
+        with self.lock:
+            for state in ("running", "queued"):
+                for task in self.tasks.values():
+                    if task["state"] == state:
+                        return dict(task)
+            return dict(self.last)
+
+
+_ANALYSIS_PROGRESS = AnalysisProgressTracker()
+
+
 class ScoreRequest(BaseModel):
     name: str = "stage-set"
     stages: dict[str, str] = Field(default_factory=dict)
@@ -555,13 +606,33 @@ def _progress_response(
     drains it, which is what makes a live (yy/zz) counter possible.
     """
     events: queue.Queue = queue.Queue()
+    task_id = _ANALYSIS_PROGRESS.begin()
+
+    def publish(item: dict) -> None:
+        if "done" in item:
+            _ANALYSIS_PROGRESS.update(
+                task_id,
+                int(item.get("done") or 0),
+                int(item.get("total") or 0),
+                str(item.get("name") or "") or None,
+            )
+        elif "result" in item:
+            summary = item["result"].get("summary", {}) if isinstance(item["result"], dict) else {}
+            completed = int(summary.get("completed") or 0)
+            failed = int(summary.get("failed") or 0)
+            total = completed + failed
+            _ANALYSIS_PROGRESS.finish(task_id, "completed", total, total)
+        elif "error" in item:
+            _ANALYSIS_PROGRESS.finish(task_id, "failed", name=str(item.get("error") or ""))
+        events.put(item)
 
     def worker() -> None:
         try:
             with reservation:
-                run(events.put)
+                _ANALYSIS_PROGRESS.start(task_id)
+                run(publish)
         except Exception as error:  # noqa: BLE001
-            events.put({"error": str(error) or "분석 중 오류가 발생했습니다."})
+            publish({"error": str(error) or "분석 중 오류가 발생했습니다."})
         finally:
             events.put(None)
 
@@ -582,6 +653,12 @@ def _progress_response(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/analysis/status")
+def analysis_status() -> dict[str, Any]:
+    """Return the latest shared analysis state for sidebar progress polling."""
+    return _ANALYSIS_PROGRESS.snapshot()
 
 
 def _progress_emitter(emit: Callable[[dict], None]) -> Callable[[int, int, Path | None], None]:

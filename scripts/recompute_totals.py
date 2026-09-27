@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -77,7 +78,21 @@ def _recompute_result(result: dict, method: str) -> bool:
     return before != after
 
 
-def _process_wrapped(path: Path, method: str, dry_run: bool = False) -> int:
+def _backup_file(path: Path) -> Path:
+    """Copy the pre-change original to <name>.bak, keeping the earliest copy.
+
+    Recomputing rewrites every result in place, so without this there is no way
+    back to the values users have already seen. An existing .bak is left alone
+    so repeated runs cannot overwrite the pristine original.
+    """
+    backup = path.with_suffix(path.suffix + ".bak")
+    if backup.exists():
+        return backup
+    shutil.copy2(path, backup)
+    return backup
+
+
+def _process_wrapped(path: Path, method: str, dry_run: bool = False, backup: bool = False) -> int:
     """ai-music-probe's own storage: {"results": [ {..one result..}, ... ]}."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -88,11 +103,13 @@ def _process_wrapped(path: Path, method: str, dry_run: bool = False) -> int:
         return 0
     updated = sum(1 for result in results if isinstance(result, dict) and _recompute_result(result, method))
     if updated and not dry_run:
+        if backup:
+            _backup_file(path)
         _atomic_write_json(path, payload)
     return updated
 
 
-def _process_single(path: Path, method: str, dry_run: bool = False) -> int:
+def _process_single(path: Path, method: str, dry_run: bool = False, backup: bool = False) -> int:
     """A directory of bare result dicts (one per file) - e.g. SongYUE2's library/AI-MusicProbe/."""
     try:
         result = json.loads(path.read_text(encoding="utf-8"))
@@ -101,6 +118,8 @@ def _process_single(path: Path, method: str, dry_run: bool = False) -> int:
     if not isinstance(result, dict) or not _recompute_result(result, method):
         return 0
     if not dry_run:
+        if backup:
+            _backup_file(path)
         _atomic_write_json(path, result)
     return 1
 
@@ -113,6 +132,11 @@ def main() -> int:
     parser.add_argument("--method", choices=methods, default=DEFAULT_ENSEMBLE["method"], help="Total 결합 방식 (기본: 현재 코드 기본값)")
     parser.add_argument("--dry-run", action="store_true", help="파일을 저장하지 않고 변경될 결과 수만 확인")
     parser.add_argument(
+        "--backup",
+        action="store_true",
+        help="갱신 전 원본을 <파일>.bak 으로 복사 (이미 있으면 덮어지지 않음)",
+    )
+    parser.add_argument(
         "--extra-dir",
         action="append",
         default=[],
@@ -124,13 +148,13 @@ def main() -> int:
     if REPORTS_DIR.is_dir():
         for path in REPORTS_DIR.glob("*.json"):
             scanned += 1
-            updated += _process_wrapped(path, args.method, args.dry_run)
+            updated += _process_wrapped(path, args.method, args.dry_run, args.backup)
     if HISTORY_DIR.is_dir():
         for path in HISTORY_DIR.glob("*.json"):
             if path.name == "favorites.json":
                 continue
             scanned += 1
-            updated += _process_wrapped(path, args.method, args.dry_run)
+            updated += _process_wrapped(path, args.method, args.dry_run, args.backup)
     for extra in args.extra_dir:
         extra_path = Path(extra)
         if not extra_path.is_dir():
@@ -138,7 +162,7 @@ def main() -> int:
             continue
         for path in extra_path.glob("*.json"):
             scanned += 1
-            updated += _process_single(path, args.method, args.dry_run)
+            updated += _process_single(path, args.method, args.dry_run, args.backup)
 
     action = "변경 예정" if args.dry_run else "갱신"
     print(f"방식: {args.method}  ·  파일 {scanned}개 확인  ·  결과 {updated}개 {action}")

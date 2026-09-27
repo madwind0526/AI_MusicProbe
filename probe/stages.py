@@ -16,8 +16,8 @@ from .config import AUDIO_EXTENSIONS, STAGE_ORDER
 # SongYUE2 writes its timbre-transform stages under runs/<id>/stems/. The names
 # below are the order the chain actually runs in.
 SONGYUE_STEM_MAP = {
-    "source-44k.wav": "source",
-    "source.wav": "source",
+    "source.wav": "source_original",
+    "source-44k.wav": "source_44k",
     "vocals-original.wav": "vocal_pre_svc",
     "instrumental.wav": "instrumental",
     "vocals.wav": "vocal_post_svc",

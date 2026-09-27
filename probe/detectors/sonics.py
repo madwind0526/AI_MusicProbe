@@ -21,6 +21,7 @@ HOP_SECONDS = 2.5
 MAX_WINDOWS = 24
 
 DEFAULT_TOP_K = 3
+MIN_NORMALISATION_STD = 1e-6
 
 
 def _resample(audio: Audio) -> np.ndarray:
@@ -53,7 +54,11 @@ def _prepare(audio: Audio, max_windows: int, hop_seconds: float) -> tuple[np.nda
         chunk = mono[start : start + window]
         if chunk.size < window:
             chunk = np.pad(chunk, (0, window - chunk.size))
-        chunk = chunk / max(float(np.std(chunk)), 1e-6)
+        std = float(np.std(chunk))
+        if not np.isfinite(std) or std <= MIN_NORMALISATION_STD:
+            chunk = np.zeros_like(chunk)
+        else:
+            chunk = chunk / std
         chunks.append(chunk.astype(np.float32, copy=False))
     return np.stack(chunks), starts
 

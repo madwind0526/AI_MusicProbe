@@ -2,16 +2,20 @@
 
 ## Current Focus
 
-- `codereview.md`의 높은 중요도 15건을 수정하고, `recompute_totals.py`의 의도된 덮어쓰기에 dry-run·검증·가중치 보존·원자 저장을 적용함.
-- 이력 경로 이탈 차단, history 원자 저장, True Peak·BS.1770·MAD=0 계산을 수정함.
-- ArtifactNet 중복 구간, 0 가중치 우회, 업로드 이름 순서, 설정 부분 갱신 문제를 수정함.
-- 외부 도구 timeout, 손상 리포트 400 응답, 프론트의 중복·오래된 요청 차단을 적용함.
-- 테스트의 ignored `scratch/` 의존을 `probe/evaluation.py`로 이동함.
-- 앱 시작·분석 저장·이력/리포트 삭제 시 저장 결과에서 참조하지 않는 scratch 업로드와 비주얼 캐시를 정리함.
-- 참조 중인 업로드 원본은 이력 상세 재생을 위해 유지하고, 중단된 새 업로드는 다음 요청에서 1시간 유예 후 정리함.
-- BS.1770 loudness 모듈을 실제 DSP `levels`에 연결하고 UI 키 `integratedLufs`·`truePeakDbtp`·`crestDb`를 통일함.
-- 실제 음원에서 LUFS-I -12.97, True Peak 0.31 dBTP, Crest 15.6 dB, LRA 17.37 응답을 확인함.
-- 검증: 90 tests passed, compileall 및 JS 문법 검사 통과.
+- Wave 36 완료: 코드 리뷰 Round 7에서 `start.bat`/`stop.bat`의 포트 처리 결함(R-4)을 수정하고 실환경 검증했다.
+- 서버를 실행한 채 `start.bat`을 다시 실행하면 Windows `SO_REUSEADDR` 때문에 새 인스턴스가 살아남은 인스턴스의 8792 포트를 빼앗는다. 서버는 정상이고 로그에도 오류가 없다.
+- `stop.bat`을 `Win32_Process` 조회로 바꿔 `python.exe` + 명령행 `probe.app` 프로세스를 전부 종료하고 10초까지 포트 해제를 기다린다. `start.bat`은 시작 전에 `stop.bat`을 호출한다.
+- 유령 서버 3개(2,317 MB)를 회수했고, 같은 포트를 쓰는 무관한 ComfyUI 서버(8190)는 생존했다. 재시작 후 신규 인스턴스만 남고 `/health` OK·탐지자 4개 active를 확인했다.
+- 리뷰 최종 집계: 높음 15/15 해결, 중간 21 해결 + 2 잔존(M-20 설계, M-23 `nan_to_num` 무음 치환) + 1 기각(M-21 오독), 낮음 64 미착수. 테스트 127개 통과.
+- M-8·M-17을 패턴 grep만 보고 이미 해결된 상태를 "미해결"로 잘못 보고했다. 세 번째 반복이므로 판정은 항상 함수 본문을 읽은 뒤에 내린다.
+- `codereview.md`·`README.md`·`progress.md`·`revision.md`와 memory-bank을 현재 상태로 동기화했다.
+
+## 남은 작업
+
+- 중간 2건 처리: M-23(`nan_to_num` 무음 치환을 플래그로 표시), M-20(외부 바인딩 전 인증·루트 구속)
+- 낮음/정적 64건 미착수. `dsp.py:48`의 `BRICKWALL_DB_PER_KHZ` 미사용이 포함
+- `C:\Claude\SongYUE2` 실제 health 폴링 경로 미조사
+- `scratch/run_flows.py`의 `\u` escape 버그로 4개 파일 flow 재실행 미완료
 
 <!--
 규칙:

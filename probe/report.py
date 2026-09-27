@@ -72,10 +72,9 @@ def analyze(stage_set: StageSet, control_set: StageSet | None = None) -> dict:
     deltas = {}
     for path in metric_paths:
         series = [row.get(path) for row in flat]
-        present = [v for v in series if v is not None]
-        if len(present) < 2:
+        if len(series) < 2 or series[0] is None or series[-1] is None:
             continue
-        first, last = present[0], present[-1]
+        first, last = series[0], series[-1]
         deltas[path] = {
             "series": series,
             "first": first,
@@ -93,10 +92,9 @@ def analyze(stage_set: StageSet, control_set: StageSet | None = None) -> dict:
         control_deltas = {}
         for path in metric_paths:
             series = [row.get(path) for row in control_flat]
-            present = [v for v in series if v is not None]
-            if len(present) < 2:
+            if len(series) < 2 or series[0] is None or series[-1] is None:
                 continue
-            control_deltas[path] = {"series": series, "change": round(present[-1] - present[0], 4)}
+            control_deltas[path] = {"series": series, "change": round(series[-1] - series[0], 4)}
         control = {
             "name": control_set.name,
             "stages": control_profiles,

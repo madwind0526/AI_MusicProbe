@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from probe import history
@@ -92,6 +93,21 @@ def test_change_signature_changes_without_loading_payloads(tmp_path: Path, monke
     assert after["fileCount"] == 1
 
 
+def test_non_object_favorites_and_history_files_are_ignored(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(history, "load_settings", lambda: {"historyLimit": 0})
+    (history_dir / "favorites.json").write_text("[]", encoding="utf-8")
+    (history_dir / "invalid.json").write_text("[]", encoding="utf-8")
+
+    saved = history.save_history({"results": [{"name": "safe.wav", "file": "safe.wav"}]})
+
+    assert saved.is_file()
+    assert [item["name"] for item in history.load_history()] == ["safe.wav"]
+
+
 def test_repeated_history_names_increment_without_changing_source_path(tmp_path: Path, monkeypatch) -> None:
     history_dir = tmp_path / "history"
     history_dir.mkdir()
@@ -157,3 +173,136 @@ def test_delete_history_rejects_paths_outside_report_directories(tmp_path: Path,
 
     assert history.delete_history("../outside:0") is False
     assert outside.is_file()
+
+
+def test_mixed_utc_offsets_sort_chronologically_not_lexically(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(history, "load_settings", lambda: {"historyLimit": 0})
+    # 20:00+00:00 is 2 hours LATER than 03:00+09:00, but sorts lower as text.
+    older = {"generatedAt": "2026-09-27T03:00:00+09:00", "results": [{"name": "older.wav", "file": "older.wav"}]}
+    newer = {"generatedAt": "2026-09-26T20:00:00+00:00", "results": [{"name": "newer.wav", "file": "newer.wav"}]}
+    history.save_history(json.loads(json.dumps(older)))
+    history.save_history(json.loads(json.dumps(newer)))
+
+    items = history.load_history()
+
+    assert [item["name"] for item in items] == ["newer.wav", "older.wav"]
+
+
+def test_zulu_and_offset_timestamps_are_compared_on_one_scale(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(history, "load_settings", lambda: {"historyLimit": 0})
+    zulu = {"generatedAt": "2026-09-26T20:00:00Z", "results": [{"name": "zulu.wav", "file": "zulu.wav"}]}
+    offset = {"generatedAt": "2026-09-26T21:30:00+02:00", "results": [{"name": "offset.wav", "file": "offset.wav"}]}
+    history.save_history(json.loads(json.dumps(zulu)))
+    history.save_history(json.loads(json.dumps(offset)))
+
+    items = history.load_history()
+
+    # 20:00Z is 20:00 UTC, while 21:30+02:00 is 19:30 UTC, so Z sorts first.
+    # Lexically "2026-09-26T21..." would have outranked "2026-09-26T20...".
+    assert [item["name"] for item in items] == ["zulu.wav", "offset.wav"]
+
+
+def test_trim_history_keeps_the_chronologically_newest_run(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(history, "load_settings", lambda: {"historyLimit": 1})
+    older = {"generatedAt": "2026-09-27T03:00:00+09:00", "results": [{"name": "older.wav", "file": "older.wav"}]}
+    newer = {"generatedAt": "2026-09-26T20:00:00+00:00", "results": [{"name": "newer.wav", "file": "newer.wav"}]}
+    history.save_history(json.loads(json.dumps(older)))
+    history.save_history(json.loads(json.dumps(newer)))
+
+    history.trim_history(1)
+
+    assert [item["name"] for item in history.load_history()] == ["newer.wav"]
+
+
+def test_favorites_and_regular_items_merge_in_chronological_order(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(history, "load_settings", lambda: {"historyLimit": 5})
+    # "fav" is the older run in real time but sorts later lexically.
+    fav = {"generatedAt": "2026-09-27T03:00:00+09:00", "results": [{"name": "fav.wav", "file": "fav.wav"}]}
+    regular = {"generatedAt": "2026-09-26T20:00:00+00:00", "results": [{"name": "regular.wav", "file": "regular.wav"}]}
+    history.save_history(json.loads(json.dumps(fav)))
+    history.save_history(json.loads(json.dumps(regular)))
+    fav_id = next(item["id"] for item in history.load_history() if item["name"] == "fav.wav")
+    assert history.set_favorite(fav_id, True) is True
+
+    items = history.load_history()
+
+    assert [item["name"] for item in items] == ["regular.wav", "fav.wav"]
+    assert [item["favorite"] for item in items] == [False, True]
+
+
+def test_trim_history_does_not_stat_a_report_that_has_a_timestamp(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(history, "load_settings", lambda: {"historyLimit": 1})
+    target = history_dir / "a.json"
+    target.write_text(json.dumps({
+        "generatedAt": "2026-09-27T10:00:00+00:00",
+        "results": [{"name": "a.wav", "file": "a.wav"}, {"name": "b.wav", "file": "b.wav"}],
+    }), encoding="utf-8")
+
+    real_stat = Path.stat
+    calls: list[str] = []
+
+    def failing_stat(self: Path, *args, **kwargs):
+        if self.name == "a.json":
+            calls.append(self.name)
+            raise OSError("simulated stat failure")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", failing_stat)
+    history.trim_history(1)
+    monkeypatch.undo()
+
+    # The mtime fallback must stay lazy: a report that carries a timestamp is
+    # processed without touching the filesystem, so a locked file is not skipped.
+    assert calls == []
+    assert [item["name"] for item in json.loads(target.read_text(encoding="utf-8"))["results"]] == ["a.wav"]
+
+
+def test_trim_history_falls_back_to_mtime_when_the_timestamp_is_missing(tmp_path: Path, monkeypatch) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    monkeypatch.setattr(history, "REPORTS_DIR", tmp_path)
+    monkeypatch.setattr(history, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(history, "load_settings", lambda: {"historyLimit": 1})
+    target = history_dir / "b.json"
+    target.write_text(json.dumps({
+        "results": [{"name": "a.wav", "file": "a.wav"}, {"name": "b.wav", "file": "b.wav"}],
+    }), encoding="utf-8")
+
+    history.trim_history(1)
+
+    # Without a timestamp the mtime fallback orders the report, so it is still trimmed.
+    assert [item["name"] for item in json.loads(target.read_text(encoding="utf-8"))["results"]] == ["a.wav"]
+
+
+def test_sort_timestamp_handles_malformed_and_missing_values() -> None:
+    floor = history._sort_timestamp("")
+    assert floor == history._sort_timestamp(None)
+    assert history._sort_timestamp("not-a-date") == floor
+    # An unparseable value still falls back to mtime rather than dropping to the floor.
+    assert history._sort_timestamp("not-a-date", fallback_mtime=0.0) == datetime.fromtimestamp(0.0, tz=timezone.utc)
+    # Numeric mtime-style values are accepted directly.
+    assert history._sort_timestamp(0.0) == datetime.fromtimestamp(0.0, tz=timezone.utc)
+    # Naive timestamps are treated as UTC rather than local time.
+    assert history._sort_timestamp("2026-09-26T20:00:00") == history._sort_timestamp("2026-09-26T20:00:00+00:00")
+    # Out-of-range values must not raise.
+    assert history._sort_timestamp(1e30) == datetime.min.replace(tzinfo=timezone.utc)

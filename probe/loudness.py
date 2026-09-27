@@ -17,6 +17,7 @@ well under 4096 taps, which makes the truncation exact for our purposes.
 from __future__ import annotations
 
 import numpy as np
+from scipy.signal import oaconvolve
 
 from .audioio import Audio
 
@@ -136,9 +137,9 @@ def _impulse_response(coeffs: tuple[float, ...], taps: int = _IR_TAPS) -> np.nda
 
 
 def _fft_convolve(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
-    size = signal.size + kernel.size - 1
-    n = 1 << (size - 1).bit_length()
-    return np.fft.irfft(np.fft.rfft(signal, n) * np.fft.rfft(kernel, n), n)[: signal.size]
+    if signal.size == 0 or kernel.size == 0:
+        return np.empty(0, dtype=np.float64)
+    return oaconvolve(signal, kernel, mode="full")[: signal.size]
 
 
 def k_weight(samples: np.ndarray, sample_rate: int) -> np.ndarray:
@@ -218,6 +219,8 @@ def integrated_loudness(audio: Audio) -> dict[str, float | None]:
 def crest_factor_db(audio: Audio) -> float | None:
     """Peak-to-RMS ratio. A limiter's job shows up here as a falling crest."""
     samples = audio.samples.astype(np.float64)
+    if samples.size == 0:
+        return None
     peak = float(np.abs(samples).max())
     rms = float(np.sqrt((samples**2).mean()))
     if peak <= 0 or rms <= 0:

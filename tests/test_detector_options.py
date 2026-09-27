@@ -1,6 +1,55 @@
 import pytest
 
 from probe import detector_options as options
+from probe.detectors import DETECTORS
+
+
+def test_detector_registry_and_option_schema_stay_in_sync() -> None:
+    # A detector registered without a schema entry would make for_detector()
+    # raise at analysis time, long after the mistake was made.
+    assert set(DETECTORS) == set(options.DETECTOR_SCHEMA)
+
+
+def test_implemented_detectors_are_a_subset_of_the_registry() -> None:
+    assert options.IMPLEMENTED_DETECTORS <= set(DETECTORS)
+
+
+def test_implemented_detectors_default_to_counting_toward_the_total() -> None:
+    normalized = options.normalize({})["detectors"]
+
+    for name in sorted(options.IMPLEMENTED_DETECTORS):
+        assert normalized[name]["includedInTotal"] is True, (
+            f"{name} is implemented but defaults to excluded, so its weight is treated as 0"
+        )
+
+
+def test_unimplemented_detectors_default_to_excluded() -> None:
+    normalized = options.normalize({})["detectors"]
+
+    for name in sorted(set(DETECTORS) - options.IMPLEMENTED_DETECTORS):
+        assert normalized[name]["includedInTotal"] is False
+
+
+def test_unimplemented_detector_cannot_satisfy_the_weighted_geometric_guard(tmp_path, monkeypatch) -> None:
+    # The guard needs at least one implemented detector with a positive weight.
+    # attribution is never implemented, so a positive weight on it must not be
+    # enough to pass, otherwise the Total would combine nothing.
+    target = tmp_path / "detector-options.json"
+    monkeypatch.setattr(options, "OPTIONS_PATH", target)
+
+    with pytest.raises(ValueError, match="가중 기하평균"):
+        options.save({
+            "detectors": {
+                name: {"includedInTotal": True}
+                for name in options.DETECTOR_SCHEMA
+            },
+            "ensemble": {
+                "method": "weightedGeometric",
+                "weights": {"sonics": 0, "lofcz": 0, "artifactnet": 0, "attribution": 5},
+            },
+        })
+
+    assert not target.exists()
 
 
 def test_defaults_include_all_three_installed_detectors() -> None:

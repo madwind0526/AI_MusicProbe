@@ -73,6 +73,28 @@ def test_analysis_queue_rejects_requests_beyond_pending_limit() -> None:
     assert analysis_queue.snapshot()["active"] == 0
 
 
+def test_analysis_progress_tracker_prefers_running_and_keeps_last_result() -> None:
+    tracker = app.AnalysisProgressTracker()
+    queued = tracker.begin()
+    running = tracker.begin()
+    tracker.start(running)
+    tracker.update(running, 2, 4, "second.wav")
+
+    assert tracker.snapshot() == {"state": "running", "done": 2, "total": 4, "name": "second.wav"}
+
+    tracker.finish(running, "completed", 4, 4)
+    assert tracker.snapshot()["state"] == "queued"
+
+    tracker.start(queued)
+    tracker.finish(queued, "completed", 3, 3)
+    assert tracker.snapshot() == {
+        "state": "completed",
+        "done": 3,
+        "total": 3,
+        "name": "모든 분석 작업을 완료했습니다.",
+    }
+
+
 def test_upload_total_size_limit_removes_partial_files(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(app, "SCRATCH_DIR", tmp_path)
     monkeypatch.setattr(app, "MAX_UPLOAD_FILE_BYTES", 10)

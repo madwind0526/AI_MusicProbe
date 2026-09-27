@@ -6,7 +6,10 @@ tested directly instead of through a model run.
 
 import numpy as np
 import pytest
+from pathlib import Path
 
+from probe.audioio import Audio, AudioMeta
+from probe.detectors import artifactnet, lofcz, sonics
 from probe.detectors.artifactnet import SEGMENT_SAMPLES, _aggregate as artifactnet_aggregate, _segment_starts as artifactnet_starts
 from probe.detectors.lofcz import _even_window_starts
 from probe.detectors.sonics import _aggregate as sonics_aggregate, _window_starts
@@ -63,6 +66,15 @@ def test_sonics_short_audio_is_scored_from_a_single_window() -> None:
     assert _window_starts(length=3 * RATE, window=5 * RATE, hop=2 * RATE, max_windows=24) == [0]
 
 
+def test_sonics_degenerate_window_is_silenced_instead_of_amplified() -> None:
+    samples = np.full((5 * RATE, 1), 0.001, dtype=np.float32)
+    meta = AudioMeta(Path("constant.wav"), "pcm_f32le", RATE, 1, 5.0, 32, False)
+
+    chunks, _starts = sonics._prepare(Audio(samples, RATE, meta), max_windows=1, hop_seconds=2.5)
+
+    assert np.count_nonzero(chunks) == 0
+
+
 # --- ArtifactNet ----------------------------------------------------------
 
 def test_artifactnet_even_selection_matches_the_public_protocol() -> None:
@@ -104,6 +116,27 @@ def test_artifactnet_median_is_the_documented_default() -> None:
     assert artifactnet_aggregate(values, "top3") == pytest.approx((0.4 + 0.9 + 0.3) / 3)
 
 
+def test_artifactnet_reports_a_relaxed_minimum_for_short_audio(monkeypatch) -> None:
+    samples = np.zeros((2 * 44_100, 1), dtype=np.float32)
+    meta = AudioMeta(Path("short.wav"), "pcm_f32le", 44_100, 1, 2.0, 32, False)
+    monkeypatch.setattr(artifactnet, "for_detector", lambda _name: {
+        "segmentCount": 11,
+        "segmentSelection": "even",
+        "aggregation": "top3",
+        "minValidSegments": 4,
+        "threshold": 0.5,
+        "levelNormalize": False,
+    })
+    monkeypatch.setattr(artifactnet, "option_labels", lambda _name: {})
+    monkeypatch.setattr(artifactnet, "_predict", lambda _chunk, _path: 0.25)
+
+    result = artifactnet.analyze_audio(Audio(samples, 44_100, meta), Path("model.onnx"))
+
+    assert result["effectiveMinValidSegments"] == 1
+    assert result["minimumAdjustedForShortAudio"] is True
+    assert result["validSegmentCount"] == 1
+
+
 # --- lofcz ----------------------------------------------------------------
 
 def test_even_window_sampling_covers_the_whole_track() -> None:
@@ -122,3 +155,27 @@ def test_even_window_sampling_is_capped_so_runtime_stays_bounded() -> None:
 
 def test_even_window_sampling_returns_one_window_for_short_audio() -> None:
     assert _even_window_starts(length=100 * RATE, window=300 * RATE) == [0]
+
+
+def test_lofcz_segment_statistics_use_the_scoring_windows(monkeypatch) -> None:
+    samples = np.zeros((100 * RATE, 1), dtype=np.float32)
+    meta = AudioMeta(Path("long.wav"), "pcm_f32le", RATE, 1, 100.0, 32, False)
+    calls = []
+    monkeypatch.setattr(lofcz, "for_detector", lambda _name: {
+        "maxDurationS": 30,
+        "analysisPosition": "even",
+        "aggregation": "mean",
+        "threshold": 0.5,
+    })
+    monkeypatch.setattr(lofcz, "option_labels", lambda _name: {})
+
+    def predict(chunk, _path):
+        calls.append(chunk.size)
+        return len(calls) / 10
+
+    monkeypatch.setattr(lofcz, "_predict", predict)
+    result = lofcz.analyze_audio(Audio(samples, RATE, meta), Path("model.onnx"))
+
+    assert len(calls) == result["evenWindowCount"] == len(result["segments"])
+    assert result["segments"] == result["evenWindows"]
+    assert result["segmentMean"] == result["score"]

@@ -23,9 +23,6 @@ FREQ_MAX = 8_000
 HULL_SIZE = 10
 MAX_DB = 5.0
 MIN_DB = -45.0
-MAX_DURATION_S = 300
-SEGMENT_DURATION_S = 30
-SEGMENT_HOP_S = 15
 
 
 def _resample(mono: np.ndarray, source_rate: int) -> np.ndarray:
@@ -73,18 +70,6 @@ def _predict(samples: np.ndarray, model_path: Path) -> float:
     return float(np.asarray(output).reshape(-1)[0])
 
 
-def _segment_starts(length: int) -> list[int]:
-    window = SEGMENT_DURATION_S * SAMPLE_RATE
-    hop = SEGMENT_HOP_S * SAMPLE_RATE
-    if length <= window:
-        return [0]
-    starts = list(range(0, length - window + 1, hop))
-    tail = length - window
-    if starts[-1] != tail:
-        starts.append(tail)
-    return starts
-
-
 #: A long track would otherwise cost one full-length prediction per window, so
 #: spaced sampling is capped. The cap is reported instead of applied silently.
 MAX_EVEN_WINDOWS = 6
@@ -112,11 +97,9 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
     analysis_window = max_duration_s * SAMPLE_RATE
     full_score: float | None = None
 
-    # `start` scores one window from the beginning, so the song-level number is
-    # that single score. `even` scores spaced windows across the whole track and
-    # combines them with the configured aggregate. Only the 30-second diagnostic
-    # timeline is capped, so `even` really does sample the entire track.
-    timeline = mono[:MAX_DURATION_S * SAMPLE_RATE]
+    # `segments` below are the exact windows used for the song-level score. This
+    # keeps the diagnostics and aggregate on the same evidence and avoids a
+    # second set of unrelated model calls over only the first five minutes.
     even_scores: list[float] = []
     even_windows: list[dict] = []
     even_capped = False
@@ -133,7 +116,8 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
                 "score": round(score, 4),
             })
     else:
-        full_score = _predict(mono[:analysis_window], model_path)
+        end = min(analysis_window, mono.size)
+        full_score = _predict(mono[:end], model_path)
 
     if even_scores:
         values = np.asarray(even_scores, dtype=float)
@@ -144,18 +128,11 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         track_score = float(full_score)
         aggregation_label = "single window score"
 
-    window = SEGMENT_DURATION_S * SAMPLE_RATE
-    segments = []
-    for start in _segment_starts(timeline.size):
-        chunk = timeline[start : start + window]
-        score = _predict(chunk, model_path)
-        segments.append(
-            {
-                "startS": round(start / SAMPLE_RATE, 2),
-                "endS": round((start + chunk.size) / SAMPLE_RATE, 2),
-                "score": round(score, 4),
-            }
-        )
+    segments = even_windows if even_windows else [{
+        "startS": 0.0,
+        "endS": round(min(analysis_window, mono.size) / SAMPLE_RATE, 2),
+        "score": round(track_score, 4),
+    }]
 
     segment_values = np.asarray([item["score"] for item in segments], dtype=float)
     result = {

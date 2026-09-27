@@ -101,3 +101,11 @@ Wave 완료 시:
 | 탐지기 전처리 상수는 학습 입력과 결합되어 있으며 구간 선택·집계·임계값·실행 성능 값과 구분해야 함 | `knowledge/RULES.md` |
 | lofcz 구간 설정은 현재 진단 출력에만 쓰이고 Total에는 곡 전체 점수만 반영됨 | `knowledge/trouble-shooting.md` |
 | ArtifactNet 집계법 변경은 E0003 일부에는 유리했지만 E0001/E0002 및 인간 대조군에서 방향성을 고치지 못함 | `knowledge/trouble-shooting.md` |
+
+## Wave 36에서 flush한 항목
+
+| 발견사항 | 이동된 곳 |
+|----------|-----------|
+| Windows `SO_REUSEADDR`로 이미 LISTEN 중인 포트에 bind가 성공해 재시작한 서버가 살아남은 서버를 밀어냄. `netstat` PID 종료는 launcher만 죽여 포트가 안 정리됨 | `knowledge/trouble-shooting.md` |
+| 패턴 grep으로 해결 여부를 판정하면 반복해서 오판됨. 해부는 상수 선언, 가드는 별도 라인, 네이티브 값 지정은 오독 | `knowledge/trouble-shooting.md` |
+| 문서에서 "수정"으로 집계한 항목도 코드로 확인해야 실제 반영 여부를 알 수 있음 | `knowledge/trouble-shooting.md` |

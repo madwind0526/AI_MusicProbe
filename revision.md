@@ -207,3 +207,31 @@ ArtifactNet의 구간 수와 집계 방법을 E0001 네 곡으로 비교했다. 
 ### N-1. Loudness 프로덕션 배선
 
 `probe/loudness.py`의 BS.1770 계산은 정밀 테스트만 존재하고 `dsp.analyze()`에서 호출되지 않았다. `level_metrics()`와 `integrated_loudness()`·`crest_factor_db()`를 `level_profile()`로 합쳐 실제 API의 `parameters.levels`에 연결했다. UI 계약에 맞춰 `integratedLufs`, `truePeakDbtp`, `crestDb`를 출력하고, 기존 비교 API가 사용하는 `truePeakDbfs` 등 기존 키도 유지했다.
+
+---
+
+## R11. 재시작 시 새 서버가 살아남은 서버의 포트를 빼앗음 (2026-09-27)
+
+서버를 실행한 채 `start.bat`을 다시 실행하면 브라우저의 SSE(`/api/analysis/stream`)가 끊겼다가 새 서버에 다시 붙고, 화면은 "분석 완료 3/4"에서 멈췄다. 서버 로그에 오류가 없어서 Python 크래시로 오인했다. 실제로는 크래시가 아니었고 **Application Error ID 1000 기록 자체가 없었다.**
+
+원인은 세 가지가 겹친 것이었다.
+
+첫째, Windows 소켓은 `SO_REUSEADDR`로 **TIME_WAIT가 남아 있어도 이미 다른 프로세스가 LISTEN 중인 포트에 bind와 listen이 성공**한다. 즉 이전 서버가 살아 있는 포트를 새 인스턴스가 그대로 가져간다.
+
+둘째, 기존 `stop.bat`은 `netstat -ano`로 포트 8792의 PID를 잡아 종료했는데, 실제 프로세스 트리에서 `python.exe`는 그보다 위쪽 launcher의 자식이었다. 남은 launcher가 살아 있어서 kill과 재시작 사이 1초 안에 포트가 정리되지 않았다.
+
+셋째, 그 결과 **죽인 인스턴스가 아니라 살아남은 인스턴스**가 포트를 계속 보유했다.
+
+`stop.bat`을 `Win32_Process` 조회로 바꿔 `python.exe`이면서 명령행에 `probe.app`이 있는 프로세스를 전부 종료하고, 8792이 해제될 때까지 최대 10초 기다리도록 했다. `start.bat`은 시작 전에 `stop.bat`을 호출한다. 명령행 패턴이 `probe.app`으로 한정되어 있어 같은 포트를 쓰는 무관한 서버는 건드리지 않는다.
+
+검증에서 기존 방식이 놓치던 유령 서버 3개가 남아 있었고(잔여 메모리 2,317 MB), 8190 포트의 ComfyUI 서버는 그대로 생존했다. 서버 실행 중 `start.bat`을 다시 실행하자 launcher와 서버가 신규 2개만 남고 이전 인스턴스는 0개가 되었으며, `/health` OK·탐지자 4개 active·상태 idle을 확인했다.
+
+### M-21 기각과 M-23 집계 정정
+
+같은 회차의 코드 리뷰에서 **M-21을 기각**했다. 최초 리뷰는 `audioio.load()`가 `-ar`/`-ac`로 44100/1을 강제한다고 적었지만, 실제로는 ffprobe로 읽은 `meta.sample_rate`/`meta.channels`(파일 네이티브 값)을 넘긴다. 동일 값 지정은 옵션 생략과 바이트 단위로 같고 `git diff`에도 해당 변경이 없어, 모듈 docstring과 코드가 처음부터 일치했다.
+
+**M-23은 미해결로 되돌렸다.** Round 3에서 M-2와 묶어 "자체 수정"으로 집계했지만 실제로는 M-2의 `ddof=1`만 반영되었고, `audioio.py`의 `nan_to_num` 무음 치환은 그대로다.
+
+### 판정 방식
+
+M-8과 M-17을 이미 해결된 상태로 "미해결"이라 잘못 보고한 것이 이번 회차의 직접적인 원인이었다. 두 건 모두 **패턴 grep**만 보고 판단했다 — M-8은 상수 선언 `MIN_NORMALISATION_STD = 1e-6`이 남아 있는 것을 보고, M-17은 `payload.get(` 라인이 남아 있는 것을 보고 실제 가드는 별도 라인의 `isinstance(payload, dict)`였음을 놓쳤다. 이는 같은 문서 안에서 "grep 패턴은 존재 부부의 증거이지 부재의 증거가 아니다"고 기록해 둔 원칙을 자기 자신이 위반한 것이며, 세 번째 반복이다. 이제부터 판정은 항상 함수의 전체 본문을 읽은 뒤에만 내린다.

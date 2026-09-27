@@ -2,10 +2,14 @@
 
 ai-music-probe 전체 코드 리뷰
 
-- 리뷰 대상: `656cf1c` (2026-09-27) — 커밋된 전체 소스
+- 최초 리뷰 대상: `656cf1c` (2026-09-27) — 커밋된 전체 소스
 - 범위: `probe/` 22개 파일 (약 3,600줄 Python), `web/` 5개 파일 (약 1,700줄), `tests/` 9개, `scripts/` 1개
-- 기준선: `pytest` **76 passed** / `node --check web\app.js` 통과
-- **읽기 전용 리뷰입니다. 코드는 수정하지 않았습니다.**
+- **현행 기준선: `70a0829` + 미커밋 35개 파일(127 tests)**
+- 최초 리뷰는 읽기 전용이었고, 이후 Round 3~7에서 아래 명시된 항목만 수정했습니다.
+
+> **인코딩 repaired (2026-09-27)**: 이 파일의 부록이 CP949 바이트로 기록되어 UTF-8 본문과
+> 혼재 인코딩 상태였습니다. 부록 7,532바이트를 CP949로 디코드해 UTF-8로 재기록했습니다
+> (replacement character 0건, 내용 무손실).
 
 ## 검증 표기
 
@@ -14,10 +18,31 @@ ai-music-probe 전체 코드 리뷰
 | **[확인]** | orchestrator가 소스 + venv 실행으로 직접 재현함. 사실로 확신 |
 | **[정적]** | 소스 정독으로 확정. 미실행. 신뢰도 높음 |
 | **[설계]** | 버그가 아니라 설계 선택에 대한 지적 |
+| **[수정]** | 이후 리뷰 회차에서 실제로 코드로 수정됨 |
+| **[잔존]** | 2026-09-27 현재에도 코드에 남아 있음 |
 
 심각도 집계: **높음 15 / 중간 24 / 낮음 64·(정적)**, 총 103건.
 수치 버그 후보 중 **[확인] 6건은 전부 재현 성공**했습니다. 반대로 서브에이전트가 보고한 1건은
 재현 시나리오를 교정하니 **기각**했습니다(아래 「기각된 보고」 참고).
+
+## 현행 결론 (2026-09-27, Round 7 반영)
+
+| 등급 | 전체 | 해결 | 잔존 | 기각 |
+|---|---|---|---|---|
+| 높음 | 15 | **15** | 0 | 0 |
+| 중간 | 24 | **21** | **2** (M-20, M-23) | **1** (M-21) |
+| 낮음/정적 | 64 | 0 | 64 | 0 |
+
+- **Round 6**에서 M-3·M-8·M-9·M-10·M-11·M-17·M-24를 수정했습니다.
+- **Round 7**은 `start.bat`/`stop.bat`의 포트 처리 결함(R-4)을 고쳤습니다. 상세는 부록 「Round 7」 참고.
+- **M-21은 기각**했습니다. 최초 리뷰는 `-ar`/`-ac`가 44100/1을 강제한다고 적었으나,
+  `audioio.load()`는 ffprobe로 읽은 **파일 네이티브 값**(`meta.sample_rate`/`meta.channels`)을
+  넘깁니다. 동일 값 지정은 옵션 생략과 바이트 단위로 같고 `git diff`에도 해당 변경이 없습니다.
+  docstring과 코드가 처음부터 일치했으므로 문서 항목이 아니라 **기각**이 맞습니다.
+- **M-23은 미해결**입니다. Round 3 집계에서 "자체 수정"으로 잘못 세었으나 실제 코드는 그대로입니다.
+- M-20은 기본 loopback 실행에서는 허용되는 설계이며, 외부 네트워크 바인딩을 지원할 때
+  인증 또는 탐색 루트 제한이 필요합니다.
+- 리뷰 중 발견한 **R-3 성능 회귀는 Round 6에서 overlap-add convolution으로 수정**했습니다.
 
 ---
 
@@ -161,7 +186,7 @@ if selection == "start":
 ```
 
 출시 기본값이 `aggregation:"top3"`이므로 "상위 3개 구간 평균"이 **같은 창 3벌의 평균**이 되고,
-보고서는 이를 서로印证하는 3개 구간으로 제시합니다.
+보고서는 이를 서로 뒷받침하는 3개 구간으로 제시합니다.
 
 `tests/test_detector_aggregation.py:70-75`(`test_artifactnet_start_selection_clamps_to_the_last_full_segment`)
 가 clamp 경로를 건드리지 않아 **스위트가 이 부분을 잘못 안심시키고 있습니다.**
@@ -251,6 +276,18 @@ GPU/VRAM/CPU/RAM 계기가 뒤로 뛰거나 `GPU 확인 불가`와 실측값이 
 ---
 
 ## 2. 중간 (Medium) — 24건 (발췌)
+
+> **현행 상태 (2026-09-27).** 아래 본문은 최초 리뷰 시점의 발견 내용을 그대로 보존한 것입니다.
+> 각 항목의 해결/잔존 판정은 부록 「해결 현황」 표를 보십시오.
+
+| 상태 | 항목 | 건수 |
+|---|---|---|
+| **[수정]** Codex (Round 1) | M-1, M-13, M-14, M-16, M-22 | 5 |
+| **[수정]** 자체 (Round 3) | M-2, M-4, M-5, M-6, M-7, M-12, M-15, M-18, M-19 | 9 |
+| **[수정]** Round 6 | M-3, M-8, M-9, M-10, M-11, M-17, M-24 | 7 |
+| **[잔존]** | M-20, M-23 | **2** |
+| **[기각]** | M-21 | **1** |
+| | 합계 | **24** |
 
 ### 점수 계산 정합성
 
@@ -348,7 +385,7 @@ GPU/VRAM/CPU/RAM 계기가 뒤로 뛰거나 `GPU 확인 불가`와 실측값이 
 - `resources.py:22-33` 3초마다 `nvidia-smi`를 새로 spawn, 실패 시 **네거티브 백오프 없음**.
   `app.py:274`가 sync `def`라 최대 3초 동안 threadpool 슬롯 점유
 - `resources.py:34` 멀티 GPU에서 GPU 0만 보고. payload 키가 단수라 자기 일관성은 있음
-- `audioio.py:72` `ffprobe`에 경로를裸 positional로 전달하고 `--` 구분자 없음 → `-v.wav` 같은
+- `audioio.py:72` `ffprobe`에 경로를 맨 positional 인자로 전달하고 `--` 구분자 없음 → `-v.wav` 같은
   파일명이 옵션으로 파싱됨. ffmpeg(:128)은 `-i`가 앞에 있어 안전
 - `audioio.py:80-81`, `:136-137` stderr의 **마지막** 줄만 노출. ffmpeg은 진단을 먼저 출력하므로
   가장 쓸모없는 줄이 사용자에게 보임
@@ -594,117 +631,324 @@ GPU/VRAM/CPU/RAM 계기가 뒤로 뛰거나 `GPU 확인 불가`와 실측값이 
 
 ---
 
-# �η�: Codex ������ ����� (2026-09-27)
+# 부록: 수정본 재검증 로그 (2026-09-27)
 
-Ŀ���� ���� �� �ư� ���� ��ŷ Ʈ���� �ֽ��ϴ�. `656cf1c` ��� **25�� ���� ����**(+441/?177),
-�ű� ���� `probe/evaluation.py`, `tests/test_recompute_totals.py`.
+총 5개 회차로 나눠 기록합니다. Round 1은 Codex 수정본(당시 미커밋), Round 2는 그 커밋
+(`70a0829`), Round 3은 자체 10건 수정, Round 4는 재리뷰, Round 5는 그 재리뷰에서 나온
+후속 조치입니다.
 
-���ؼ�: `pytest` **87 passed** (+11), `node --check` ���� ���, **�ٸ� CWD������ 87 passed**.
+| 회차 | 대상 | 테스트 | 상태 |
+|---|---|---|---|
+| 최초 | `656cf1c` 원본 | 76 passed | 읽기 전용 |
+| Round 1 | Codex 15건 (워킹 트리) | 87 passed | → `70a0829`로 커밋 |
+| Round 2 | Codex 최종 배치 | 90 passed | 커밋에 포함 |
+| Round 3 | 자체 10건 수정 | 113 passed | **미커밋** |
+| Round 4 | 재리뷰 | 115 passed | **미커밋** |
 
-## ���� ����
+## Round 1: Codex 수정본 (당시 미커밋)
 
-| �׸� | ��� |
+`656cf1c` 대비 **25개 파일 변경**(+441/-177),
+신규 파일 `probe/evaluation.py`, `tests/test_recompute_totals.py`.
+
+기준선: `pytest` **87 passed** (+11), `node --check` 양쪽 통과, **다른 CWD에서도 87 passed**.
+
+## 종합 판정
+
+| 항목 | 결과 |
 |---|---|
-| ���� 15�� | **15/15 �ذ�** |
-| �߰� 24�� | 8�� �ذ�, 16�� ���� |
-| errors_report E-1~E-4 | **4/4 �ذ�** |
-| �ű� ȸ�� | **0��** |
-| �ű� �߰� | 1�� (�Ʒ� N-1) |
+| 높음 15건 | **15/15 해결** |
+| 중간 24건 | 8건 해결, 16건 잔존 |
+| errors_report E-1~E-4 | **4/4 해결** |
+| 신규 회귀 | **0건** |
+| 신규 발견 | 1건 (아래 N-1) |
 
-���� ����� **���� ���� ������ Ȯ��**�߽��ϴ�. �ο븸���� ���� �ʾҰ�, ���꿡����Ʈ������
-������ ��ġ ������ ���� ��ũ��Ʈ�� �ٽ� ���Ƚ��ϴ�.
+높음 등급은 **전부 직접 재현해 확인**했습니다. 인용만으로 믿지 않았고, 서브에이전트·이전
+리뷰의 수치 주장을 같은 스크립트로 다시 돌렸습니다.
 
-## ���� 15�� ? �ذ� Ȯ��
+## 높음 15건 ? 해결 확인
 
-| # | ���� ��� (���� ��) | ���� |
+| # | 재현 결과 (수정 후) | 판정 |
 |---|---|---|
-| C-1 `delete_history` traversal | `Path(stem).name != stem` + `/ \ ..` �ź� + `_SAVE_LOCK` �߰�. `'../outside:0'` �� `False`, ���� ���� Ȯ�� | �ذ� |
-| C-2 true peak ������ ���� ���� | `np.interp` �� `scipy.signal.resample_poly(x,4,1,padtype="line")`. `input max 0.900` �� **`output max 1.128`**. `true_peak = max(peak, oversampled)`�� �Һ��� ���� | �ذ� |
-| C-3 BS.1770 ä�� ����ġ | `_channel_gains()` �ż� + **line 182���� ���� ȣ�� Ȯ��**. 6ch �� `[1, 1, 1, 0, 1.41, 1.41]` (LFE=0, �԰� ��Ȯ) | �ذ� |
-| C-4 `robustMean` MAD=0 | `np.isclose` �б� �ż�. `[0.854, 0.854, 0.0]` �� `0.8540, outliers=['d2']` (���� �� `0.5693, []`) | �ذ� |
-| C-5 0-����ġ ���� ����ȭ | `DEFAULT_INCLUDED["attribution"] = False` **+ `IMPLEMENTED_DETECTORS` ȭ��Ʈ����Ʈ**. `included`�� attribution ������, ���� ���� �ߵ� | �ذ� (��� ����ȭ) |
-| C-6 ArtifactNet ���� clamp | `range(0, tail+1, SEGMENT)` + tailappend. 4.5�� �� �ߺ� 11���� �ƴ϶� **2�� â**. 200�� ������ `n=11, unique=11, monotonic=True`�� **��ȸ��** | �ذ� |
-| C-7 `--method` �̰��� | `choices=ENSEMBLE_METHODS`. `harmonic` �� **exit 2**, argparse ����. ������ ������� ��ü ���� | �ذ� |
-| C-8 �ı��� ���ۼ� | `_atomic_write_json`(tmp+fsync+replace) + `--dry-run`. dry-run ���� �� ���� 36��36, exit 0. **`--backup` �÷��״� ������ ����** | �κ� �ذ� |
-| C-9 ���� ����ġ ��� | `_stored_ensemble()`�� `detectorSettings.ensemble.weights` ����. �׽�Ʈ�� `{sonics:2, lofcz:1}` �������� ���� | �ذ� |
-| C-10 subprocess ������ | `FFPROBE_TIMEOUT_S=30`, `FFMPEG_TIMEOUT_S=1800` + `TimeoutExpired �� AudioToolError`. �μ������� M-22(JSON)�� �ذ� | �ذ� |
-| C-11 �߸��� ���� �⺻������ ��� | `_normalize_detector(..., fallback)` �ż�, coerce ������ **���� ���尪**. `merge()`�� `_normalize_detector` ����. `maxWindows` 16 ���� �׽�Ʈ ��� | �ذ� |
-| C-12 ���ε� �̸� ������ | `_restore_upload_names()`�� ��� Ű ����. ���� �������� �� ����� �ڱ� ���ϸ� ���� (`middle/alpha/zebra` ��Ȯ) | �ذ� |
-| C-13 ���ҽ� ���� ���� | `resourceRequestInFlight` ���� + `finally` ���� | �ذ� |
-| C-14 stale fetch ���� | `detailVisualRequest`, `comparisonRequest`, `peakRequests[row-1]` + ��� ��Ȯ��. ��/�� ��� | �ذ� |
-| C-15 �׽�Ʈ ������ | `pytest.ini`�� `pythonpath = .`. �ٸ� CWD������ 87 passed. `test_anchor_evaluation`�� `scratch/` ��� `probe.evaluation` import | �ذ� |
+| C-1 `delete_history` traversal | `Path(stem).name != stem` + `/ \ ..` 거부 + `_SAVE_LOCK` 추가. `'../outside:0'` → `False`, 파일 생존 확인 | 해결 |
+| C-2 true peak 마지막 샘플 누락 | `np.interp` → `scipy.signal.resample_poly(x,4,1,padtype="line")`. `input max 0.900` → **`output max 1.128`**. `true_peak = max(peak, oversampled)`로 불변식 보장 | 해결 |
+| C-3 BS.1770 채널 가중치 | `_channel_gains()` 신설 + **line 182에서 실제 호출 확인**. 6ch → `[1, 1, 1, 0, 1.41, 1.41]` (LFE=0, 규격 정확) | 해결 |
+| C-4 `robustMean` MAD=0 | `np.isclose` 분기 신설. `[0.854, 0.854, 0.0]` → `0.8540, outliers=['d2']` (수정 전 `0.5693, []`) | 해결 |
+| C-5 0-가중치 가드 무력화 | `DEFAULT_INCLUDED["attribution"] = False` **+ `IMPLEMENTED_DETECTORS` 화이트리스트**. `included`에 attribution 미포함, 가드 정상 발동 | 해결 (방어 이중화) |
+| C-6 ArtifactNet 구간 clamp | `range(0, tail+1, SEGMENT)` + tailappend. 4.5초 → 중복 11개가 아니라 **2개 창**. 200초 파일은 `n=11, unique=11, monotonic=True`로 **무회귀** | 해결 |
+| C-7 `--method` 미검증 | `choices=ENSEMBLE_METHODS`. `harmonic` → **exit 2**, argparse 오류. 조용한 기하평균 대체 없음 | 해결 |
+| C-8 파괴적 재작성 | `_atomic_write_json`(tmp+fsync+replace) + `--dry-run`. dry-run 실행 시 파일 36→36, exit 0. **`--backup` 플래그는 여전히 없음** | 부분 해결 |
+| C-9 저장 가중치 폐기 | `_stored_ensemble()`가 `detectorSettings.ensemble.weights` 보존. 테스트가 `{sonics:2, lofcz:1}` 유지까지 검증 | 해결 |
+| C-10 subprocess 무한정 | `FFPROBE_TIMEOUT_S=30`, `FFMPEG_TIMEOUT_S=1800` + `TimeoutExpired → AudioToolError`. 부수적으로 M-22(JSON)도 해결 | 해결 |
+| C-11 잘못된 값이 기본값으로 덮어씀 | `_normalize_detector(..., fallback)` 신설, coerce 폴백이 **기존 저장값**. `merge()`도 `_normalize_detector` 경유. `maxWindows` 16 유지 테스트 통과 | 해결 |
+| C-12 업로드 이름 오매핑 | `_restore_upload_names()`가 경로 키 매핑. 원본 재현에서 각 결과가 자기 파일명 유지 (`middle/alpha/zebra` 정확) | 해결 |
+| C-13 리소스 폴링 역전 | `resourceRequestInFlight` 가드 + `finally` 해제 | 해결 |
+| C-14 stale fetch 오염 | `detailVisualRequest`, `comparisonRequest`, `peakRequests[row-1]` + 경로 재확인. 상세/비교 모두 | 해결 |
+| C-15 테스트 재현성 | `pytest.ini`에 `pythonpath = .`. 다른 CWD에서도 87 passed. `test_anchor_evaluation`이 `scratch/` 대신 `probe.evaluation` import | 해결 |
 
-## �߰� �׸� ? �ذ� 8�� / ���� 16��
+## 중간 항목 ? 해결 8건 / 잔존 16건
 
-**�ذ�**: M-1(`agreement_values`�� �̻�ġ ���� �� ��� ? �׽�Ʈ�� `confidence > 70`���� ����),
-M-3 �ƴ�, M-11(���� `isinstance(payload, dict)` ����), M-13(`stat()`�� try ������),
-M-14(`read_report`�� 400 ��ȯ), M-16(`_atomic_write_json` + `RLock`), M-17,
-M-22(ffprobe JSON �� `AudioToolError`), M-24(`merge`�� method/weights ����).
-�߰��� `stages.py` 74-75 ���� ����.
+**해결**: M-1(`agreement_values`가 이상치 제외 후 계산 ? 테스트가 `confidence > 70`까지 검증),
+M-3 아님, M-11(리더 `isinstance(payload, dict)` 가드), M-13(`stat()`이 try 안으로),
+M-14(`read_report`가 400 반환), M-16(`_atomic_write_json` + `RLock`), M-17,
+M-22(ffprobe JSON → `AudioToolError`), M-24(`merge`가 method/weights 검증).
+추가로 `stages.py` 74-75 인접 수정.
 
-**���� (���� �� ��)**:
+**잔존 (수정 안 됨)**:
 
-| # | ��ġ | ���� ���� |
+| # | 위치 | 남은 문제 |
 |---|---|---|
-| M-3 | `artifactnet.py:136` | `required = min(min_valid, len(segments))` �״��. 16�� �̸� ���Ͽ��� 4���� �ּҰ� �������� ���� |
-| M-4 | `detector_options.py:165` | ��Ʈ�� "���� ��꿡�� ����", �ڵ�� `ValueError` �� Ž���Ⱑ ������ �����. **����ڿ��� �ݴ� ��** |
-| M-8 | `sonics.py:56` | `max(std, 1e-6)` �״��. ��� �������� 100�� �� ���� |
-| M-9 | `lofcz.py:119` | `MAX_DURATION_S * SAMPLE_RATE` �ϵ��ڵ� �״��. `maxDurationS`�� ������ ���� |
-| M-10 | `stages.py:19-20` | `source-44k.wav`�� `source.wav`�� �� �� `"source"`�� ����. �ϳ��� ������ ����� |
-| M-12 | `app_settings.py` | �ջ� �ʵ� �ϳ��� `_merged`�� raise��Ű�� **��ü ������ ������ �ʱ�ȭ**. �̼��� |
-| M-15 | `history.py:135` | `sorted(..., key=lambda e: e[0])` ? ������ **���ڿ� ����**. ȥ�� ������ ISO���� �߸� ���ĵǰ� `historyLimit`�� ���� ����� ���� |
-| M-18 | `cli.py:44` | `health`�� ���� MISSING���� `return 0`. �̼��� |
-| M-19 | `cli.py:121` | `Path("reports")` CWD ���. �̼��� |
-| E-2 | `app.py` | ���ε� **���� �� ���� ������ ����** (unlink�� 480 ���а��, 697 ����Ʈ ������) |
-| C-8�ܿ� | `recompute_totals.py` | `--backup` ����. ������ ����� �ջ� ������ �پ����� **�ǵ��� �� ����** |
+| M-3 | `artifactnet.py:136` | `required = min(min_valid, len(segments))` 그대로. 16초 미만 파일에서 4구간 최소가 강제되지 않음 |
+| M-4 | `detector_options.py:165` | 힌트는 "총점 계산에서 제외", 코드는 `ValueError` → 탐지기가 에러로 사라짐. **사용자에게 반대 말** |
+| M-8 | `sonics.py:56` | `max(std, 1e-6)` 그대로. 상수 구간에서 100만 배 증폭 |
+| M-9 | `lofcz.py:119` | `MAX_DURATION_S * SAMPLE_RATE` 하드코딩 그대로. `maxDurationS`를 여전히 무시 |
+| M-10 | `stages.py:19-20` | `source-44k.wav`와 `source.wav`가 둘 다 `"source"`로 매핑. 하나가 조용히 사라짐 |
+| M-12 | `app_settings.py` | 손상 필드 하나가 `_merged`를 raise시키면 **전체 설정이 조용히 초기화**. 미수정 |
+| M-15 | `history.py:135` | `sorted(..., key=lambda e: e[0])` ? 여전히 **문자열 정렬**. 혼합 오프셋 ISO에서 잘못 정렬되고 `historyLimit`이 삭제 대상을 결정 |
+| M-18 | `cli.py:44` | `health`가 전부 MISSING여도 `return 0`. 미수정 |
+| M-19 | `cli.py:121` | `Path("reports")` CWD 상대. 미수정 |
+| E-2 | `app.py` | 업로드 **성공 시 정리 여전히 없음** (unlink은 480 실패경로, 697 리포트 삭제뿐) |
+| C-8잔여 | `recompute_totals.py` | `--backup` 없음. 원자적 쓰기로 손상 위험은 줄었으나 **되돌릴 수 없음** |
 
-## �ű� ȸ�� �˻� ? 0��
+## 신규 회귀 검사 ? 0건
 
-������ �� ���׸� ������ �ʾҴ��� ����� ��ġ �ڵ� ���θ� ��� �������� �����߽��ϴ�.
+수정이 새 버그를 만들지 않았는지 변경된 수치 코드 전부를 경계 조건으로 검증했습니다.
 
-- `resample_poly`: ������/����/��� ��ȣ���� ������Ʈ +0.0003~+0.0006(���� ����). ��� ����.
-  Ŭ���ε� 0.99 �����Ĵ� +0.264 �� �̴� **���� ���ͻ��� ��ũ**�� �ǵ��� ����.
-  �ٸ� ���� full-scale ��ȣ�� `truePeakDbfs +0.01`�� ǥ�õǴ� �̼� ���� ����
-- `_robust_mean` 7�� ��谪: ���ϰ���2�������� ���ϡ�`[0,0,0,1]`��`[0.9,0.9,0.1,0.1]` ��� �ո���
-- `_channel_gains` 1~8ch: ���� BS.1770 �԰� ��ġ
-- `_segment_starts` 200�� ����: `start`/`even` ��� 11 unique, ���� ? **���� ���� ���� �Һ�**
-- `merge()`�� `return result`�� �ٲ� ��: line 303���� `normalize(current_data)`�� �����ϰ�
-  ��ġ�� `_normalize_detector`�� �����ϹǷ� **����ȭ ���� ����**
-- `trim_history`�� `_SAVE_LOCK` �߰�: `save_history` �� `trim_history` �������� ����Ƿ�
-  `Lock` �� **`RLock` ������ �ʼ�**����, ��Ȯ�� �ݿ���
-- end-to-end: ���� �⵿ �� `/health` 3Ž���� active �� 22�� Ŭ�� ���� �м�
+- `resample_poly`: 정현파/무음/상수 신호에서 오버슈트 +0.0003~+0.0006(필터 리플). 허용 범위.
+  클리핑된 0.99 구형파는 +0.264 → 이는 **실제 인터샘플 피크**라 의도된 동작.
+  다만 완전 full-scale 신호가 `truePeakDbfs +0.01`로 표시되는 미세 편향 존재
+- `_robust_mean` 7개 경계값: 단일값·2개·전부 동일·`[0,0,0,1]`·`[0.9,0.9,0.1,0.1]` 모두 합리적
+- `_channel_gains` 1~8ch: 전부 BS.1770 규격 일치
+- `_segment_starts` 200초 파일: `start`/`even` 모두 11 unique, 단조 ? **정상 파일 동작 불변**
+- `merge()`가 `return result`로 바뀐 것: line 303에서 `normalize(current_data)`로 시작하고
+  패치를 `_normalize_detector`로 적용하므로 **정상화 누락 없음**
+- `trim_history`에 `_SAVE_LOCK` 추가: `save_history` → `trim_history` 재진입이 생기므로
+  `Lock` → **`RLock` 변경이 필수**였고, 정확히 반영됨
+- end-to-end: 서버 기동 → `/health` 3탐지자 active → 22초 클립 실제 분석
   (`sonics=0.0747, artifactnet=0.7167, lofcz=0.0`, total 3.7, confidence 85.6,
-  �̻�ġ `artifactnet` ���� ����, `detectorErrors` ����)
+  이상치 `artifactnet` 정상 제외, `detectorErrors` 없음)
 
-## N-1 [�ű� �߰�] BS.1770 ��� 216���� ���δ��ǿ��� ���� �ڵ�
+## N-1 [신규 발견 → **해결**] BS.1770 모듈 216줄이 프로덕션에서 죽은 코드
 
-�̹� ����ũ �׽�Ʈ���� �߰��߽��ϴ�. **Codex ȸ�Ͱ� �ƴ϶� ���� ����**�̸�,
-���� ���� ���信�� ���ƽ��ϴ�.
+Round 1 스모크 테스트에서 발견했습니다. **Codex 회귀가 아니라 기존 결함**이며,
+이전 리뷰에서 놓친 항목이었습니다. **Round 2(`70a0829`)에서 Codex가 해결했습니다.**
 
-- `probe/loudness.py`�� `integrated_loudness()`�� **��𿡼��� ȣ����� �ʽ��ϴ�.**
-  `git grep`�� HEAD�� Ȯ���ص� `loudness.py` ��ü�� `tests/test_loudness.py`���� ����
-- ���� �м� ������ `parameters.levels`�� **`lufsIntegrated`/`lra`/`loudnessRangePeak` Ű�� ����**
-  (`peakDbfs`, `rmsDbfs`, `dcOffset`, `truePeakDbfs`�� ����)
-- �׷��� `web/app.js:130`�� `['LUFS-I', levels.integratedLufs == null ? '?' : ...]` ��
-  **�� �ʵ带 ������** �� UI�� LUFS-I�� **�׻� `?`** �� ǥ�õ˴ϴ�
-- �Դٰ� Ű �̸��� ����ġ: UI�� `integratedLufs`, ����� `lufsIntegrated` ��ȯ.
-  **�����ص� �ٷ� �������� �ʽ��ϴ�**
+당시 상황:
+- `probe/loudness.py`의 `integrated_loudness()`가 어디에서도 호출되지 않음
+- 실제 분석 응답의 `parameters.levels`에 `lufsIntegrated`/`lra`/`loudnessRangePeak` 키가 없음
+- `web/app.js:130`은 `levels.integratedLufs == null ? '?' : ...`로 **이 필드를 렌더링**
+  → UI의 LUFS-I가 **항상 `?`**로 표시됨
+- 게다가 키 이름 불일치: UI는 `integratedLufs`, 모듈은 `lufsIntegrated` 반환
 
-�̾߱Ⱑ ������ ����: `test_loudness.py` 14���� **����Ʈ���� ���� ���� �׽�Ʈ**�Դϴ�
-(BS.1770-4 ���� ���ذ�, ����Ʈ, LRA-10, 48 kHz ���ǥ). BS.1770 ���� ������ Ȯ���� ��Ƴ�����,
-**�ƹ��� ȣ������ �ʴ� ����� ��Ȯ�� �����ϰ� �ֽ��ϴ�.** ����� ȭ�鿡�� �ƹ� ���� �� ���ɴϴ�.
+이야기가 복잡했던 이유: `test_loudness.py` 14개는 스위트에서 가장 강한 테스트(BS.1770-4 절대
+기준값, 게이트, LRA-10, 48 kHz 계수표)였지만, **아무도 호출하지 않는 모듈을 정확히 검증**하고
+있었습니다.
 
-����: `dsp.level_metrics()` ����� `integrated_loudness()`�� �����ϰ� Ű �̸���
-`integratedLufs`�� ����. �̹� ������ �ڵ尡 ������ �輱�� �ϸ� �˴ϴ�.
+**해결 확인 (Round 2)**: `git log -S`, `git show HEAD:probe/dsp.py`, 직접 `level_profile()` 호출로
+3중 확인했습니다.
 
-## ���� �켱����
+| 지점 | 내용 |
+|---|---|
+| `probe/dsp.py:471` | `level_profile()` 신설 — `integrated_loudness()`를 실제 호출 |
+| `probe/dsp.py:548` | report의 `"levels": level_profile(audio)` 배선 |
+| `web/app.js:127` | `integratedLufs` 키로 UI 렌더링 |
 
-1. **N-1** LUFS �輱 ? �̹� ������ �ڵ尡 �׾� ����. UI�� `?`�� ǥ�õǴ� ����
-2. **M-15** �̷� ���� ���ڿ� �� ? `historyLimit` ���� �� **������ ��������**�� ����
-3. **M-12** ���� ��ü �ʱ�ȭ ? �߸��� �ʵ� �ϳ��� ����ڰ� ���� ����
-4. **M-4** ��Ʈ ���� ���� �Ǵ� ���� ���� ? ����ڿ��� ������
-5. **C-8 �ܿ�** `recompute_totals.py --backup` �߰�
-6. M-3 / M-8 / M-9 / M-10 / M-18 / M-19 / E-2
+실측 출력: `integratedLufs=-21.75`, `lra=4.44`, `crestDb=16.72`. 키 불일치도 해소됐습니다.
 
-`--dry-run` ���� ��� **212���� ���� ���**�Դϴ�. ���� dry-run�� �����ϹǷ�
-��� �÷��׸� �߰��� �� ���� ������ ���մϴ�.
+> **단, 이 배선은 R-3 성능 회귀를 동반했습니다.** 「현재 미해결 목록」 참조.
+
+## Round 3: 자체 수정 10건 + C-8 잔여
+
+사용자 승인 항목만 수정했습니다. **115 tests pass** (Round 2의 90 → +25).
+
+| # | 위치 | 수정 내용 |
+|---|---|---|
+| M-15 | `probe/history.py` | `_sort_timestamp()` 신설 후 **모든 정렬 4곳**을 datetime 비교로 변경. `Z` 표기, 혼합 오프셋, naive(UTC 간주), mtime fallback, malformed 값 대응 |
+| M-12 | `probe/app_settings.py` | `_as_int()`/`_as_bool()` 신설. threshold·경로·필드별 방어 파싱. 필드 하나가 나빠도 전체 설정이 초기화되지 않음. 신규 `tests/test_app_settings.py` 5개 |
+| M-18 | `probe/cli.py` | `health`가 ffmpeg/ffprobe 누락 시 **exit 1**. detector unavailable은 비치명적 |
+| M-19 | `probe/cli.py` | `--save`가 CWD 상대 `Path("reports")` 대신 `config.REPORTS_DIR` 사용 |
+| M-7 | `probe/detectors/base.py` | `unavailable_reason()`이 누락 파일을 runtime보다 먼저 보고. 진짜 원인이 surfaced됨 |
+| M-4 | `probe/detector_options.py` | `minValidSegments` 힌트를 실제 오류 처리 및 short-track 기준 하향 설명으로 수정 |
+| M-5 | `probe/detectors/artifactnet.py` | `levelNormalize=False` 기본값과 점수 변경 위험을 주석에 명시 |
+| M-2 / M-23 | `probe/file_analysis.py` | agreement를 **sample 표준편차 `ddof=1`**로 변경. 탐지기 수 간 비교가 가능해짐 |
+| C-8 | `scripts/recompute_totals.py` | `--backup` 추가. 최초 `<파일>.bak` 보존, dry-run/무변경 시 백업 미생성 |
+| M-6 | `probe/detector_options.py` | `DETECTORS`↔`DETECTOR_SCHEMA`↔`IMPLEMENTED_DETECTORS` 불변식 테스트 추가. attribution에 양수 가중치 부여 |
+
+> **주의 — M-2/M-23는 confidence 값을 바꿉니다.** 2탐지기 `0.90/0.10`이면 agreement가
+> `0.2 → 0.0`, confidence가 `8.0 → 0.0`이 됩니다. **변경 전 confidence와 수치 비교가
+> 불가능합니다.** 저장된 리포트의 confidence는 `recompute_totals.py`로 재계산해야 합니다.
+
+검증: 프로젝트 루트 113 passed / `%TEMP%`에서도 113 passed / 수정 모듈 `py_compile` 통과 /
+서버 기동 + `/health` + `/api/settings` smoke 통과.
+
+## Round 4: 재리뷰
+
+### R-1 [자기 점검] 제가 만든 회귀 — 수정 완료
+
+`trim_history`에 `fallback_mtime=source.stat().st_mtime`를 인자로 넘겼는데 **인자는 호출 전에
+평가**됩니다. 그 결과 `generatedAt`가 있어도 `stat()`이 실행되고, `stat()`이 OSError를 내면
+원래는 처리되던 report가 통째로 건너뛰어졌습니다. 기존 `or`의 단락 평가가 사라진 것입니다.
+
+수정 후 검증:
+
+| 조건 | 결과 |
+|---|---|
+| `generatedAt` 존재 + `stat()` 실패 | `stat()` **0회** 호출, trim 정상 동작 |
+| `generatedAt` 없음 + `stat()` 실패 | 1회 호출 후 skip (문서화된 fallback 경로) |
+| 대조군 ( stat 정상, limit 1 / 결과 2개) | 2 → 1로 정상 trim |
+
+버그를 다시 주입해 테스트가 실제로 실패하는지 확인한 뒤 `tests/test_history.py`에 회귀 테스트
+2개를 추가했습니다 (`1 failed` 확인). **115 tests pass.**
+
+### R-2 `--backup` 안전성 — 이상 없음
+
+모든 소비자가 `*.json`으로 glob합니다: `app.py:642`, `history.py:93,134,136,154,193,195`,
+`scratch_cleanup.py:15,18`, `recompute_totals.py:152,156,166`. `report.json.bak`은 어느 것도
+매칭하지 않으므로 history·report 목록·recompute에서 제외됩니다.
+
+### R-3 [성능, HIGH] LUFS 배선이 분석을 7.4배 느리게 만듦 — **미수정**
+
+`level_profile`이 N-1 해결 과정에서 모든 분석 경로에 들어가면서 파일당 **+3.4초**가
+추가됐습니다. 3분 트랙 기준 `level_metrics` 0.53s → `level_profile` **3.93s**.
+
+원인은 `probe/loudness.py:138 _fft_convolve`입니다. 4096탭 FIR 커널을 **신호 전체 길이로
+zero-pad**해 FFT합니다.
+
+| 항목 | 값 |
+|---|---|
+| 신호 샘플 | 8,722,560 |
+| pad 후 FFT 크기 | **16,777,216** (`1 << bit_length()` → 1.92배 낭비) |
+| 커널 | 4096탭 → 대부분 0인 배열을 16.7M 길이로 FFT (4회) |
+| 프로파일 | `_raw_fft` 12회 = 2.97s, 전체 3.31s 중 90% |
+
+**기존 코드는 수학적으로 정확합니다** (`np.convolve`와 2.665e-15 일치). 성능만의 문제입니다.
+
+검증한 대체안 — overlap-add (**입력은 겹치지 않고 출력만 겹침**):
+
+| 항목 | 결과 |
+|---|---|
+| 정확도 | 현재 구현과 `3.6e-16` 일치 (**무손실**) |
+| 속도 (factor 4~8) | 843ms → **93ms**, **9.0배** |
+| `next_fast_len` 단독 | 671ms, 1.19배 — 주된 레버 아님 |
+
+적용하면 `level_profile`이 약 1.0초로 내려가 파일당 오버헤드가 +3.4초 → +0.5초가 됩니다.
+**리뷰 단계라 적용하지 않았습니다.**
+
+> 참고: 첫 프로토타입은 **입력 구간을 겹쳐** 이중 합산했고(오차 4.945e-01), 두 번째는
+> `m < block + n - 1`로 원형 앨리어싱을 만들었습니다. `np.convolve` 기준 삼중 비교로
+> 잡았습니다. 수치 검증 없이 속도만 보고하면 이런 오류를 통과시킬 수 있습니다.
+
+## 현재 미해결 목록
+
+> 2026-09-27 Round 7 종료 시점. 코드를 직접 읽어 확인한 결과입니다.
+
+### 중간 1건 — 설계 (제품 결정 필요)
+
+| # | 위치 | 내용 |
+|---|---|---|
+| M-20 | `file_browser.py:35-41` | 루트 구속·인증 없음 → 전체 디스크 목록 + 임의 경로 분석. 기본 `127.0.0.1` loopback 바인딩이면 설계상 허용되지만, 바인딩 주소를 외부로 바꾸는 순간 문제가 됩니다 |
+
+### 중간 1건 — 단순 버그 (안전하게 수정 가능)
+
+| # | 위치 | 내용 |
+|---|---|---|
+| M-23 | `audioio.py:156-159` | `nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)`가 손상 파일을 **디지털 무음으로 조용히 변환**합니다. 정상 무음 파일과 `peakDbfs: -240.0`으로 구별되지 않고, `Audio` 객체에 처리 아티팩트를 표시할 플래그도 없습니다. 디코드 실패를 측정값으로 내는 무결성 문제입니다. |
+
+> **M-23 집계 정정**: Round 3 표에서 M-2와 묶어 "자체 수정"으로 세었으나, 실제로는
+> M-2의 `ddof=1`만 반영되고 M-23은 손대지 않았습니다. 아래 「오류 정정 기록」 참고.
+
+### R-3 성능 — 해결됨
+
+Overlap-add convolution(`scipy.signal.oaconvolve`)으로 교체 완료. 상세는 「R-3」 및 「Round 6」.
+
+### 리뷰 중 발견한 경미 사항
+
+- `--backup`이 만든 `.bak`을 정리하는 경로가 없습니다 (`scratch_cleanup`은 `scratch/`만 처리)
+- `cli._print_health`의 필수 도구 누락 메시지가 모든 detector 출력 **뒤**에 출력됨
+- `_backup_file`의 반환값이 호출부에서 사용되지 않음
+
+### 낮음/정적 64건 — 전부 미착수
+
+3절 전체. `dsp.py:48`의 `BRICKWALL_DB_PER_KHZ`가 정의만 되고 어디서도 미사용이라
+`steepest_rolloff`의 docstring이 약속하는 "brickwall 판정"이 적용되지 않는 항목이 포함됩니다.
+
+### 코드 외 미착수
+
+- `C:\Claude\SongYUE2` 실제 health 폴링 경로 미조사
+- 4개 대상 파일의 2탐지자 → 3탐지자 flow 미재실행 (`scratch/run_flows.py`의 `\u` escape 버그)
+- `--dry-run` 대기 212건은 **M-2만** 변경 전 수치입니다. confidence 정의가 바뀌었으므로
+  재계산 전 카운트를 신뢰하지 마십시오.
+
+## 오류 정정 기록
+
+리뷰 과정에서 제가 잘못 판정한 항목을 기록해 둡니다.
+
+### 1. 패턴 grep 부재 오판 (존재하는 코드를 "미해결"로 집계)
+
+| 항목 | 정정 |
+|---|---|
+| M-14 | `def read_report` 패턴만 grep하고 본문을 안 읽어 "미해결"로 집계. 실제로는 `app.py:726`에 `except (OSError, json.JSONDecodeError) → HTTPException(400)`이 **있음** → Codex가 해결 |
+| M-22 | `json.loads` 라인만 grep해 "미해결"로 집계. 실제로는 `audioio.py:89-92`에 `try/except json.JSONDecodeError → AudioToolError`가 **있음** → Codex가 해결 |
+| M-1·M-13·M-16 | 최초 집계에서 "미해결"로 셌으나 Codex가 이미 해결 (M-1은 `agreement_values`가 이상치 제외, M-13은 `stat()`이 try 내부, M-16은 `_atomic_write_json`+`RLock`) |
+| M-8·M-17 | **같은 실수를 재범**했습니다. M-8은 상수 선언 `MIN_NORMALISATION_STD = 1e-6`이 남아 있는 것만 보고 "미해결"로 보고했고, 실제로는 `sonics.py:58-61`에서 퇴화 구간을 **0으로 치환**하도록 수정돼 있었습니다. M-17은 `payload.get(` 라인이 남아 있는 것만 보고 "미해결"로 보고했지만, 가드는 **별도 라인**의 `isinstance(payload, dict)`이고 5곳에 존재했습니다. 둘 다 이미 해결된 상태였습니다. |
+
+### 2. 집계·해석 오류
+
+| 항목 | 정정 |
+|---|---|
+| M-23 | Round 3 표에서 M-2와 묶어 "자체 수정"으로 세었으나, 실제 반영은 M-2의 `ddof=1`뿐이었습니다. `audioio.py:156-159`의 `nan_to_num` 무음 치환은 그대로 남아 **미해결**입니다 |
+| M-21 | 최초 리뷰가 `-ar`/`-ac`가 44100/1을 강제한다고 적은 것은 **오독**입니다. `audioio.load()`는 ffprobe로 읽은 `meta.sample_rate`/`meta.channels`(파일 네이티브 값)을 넘기며, `git diff`에도 해당 변경이 없습니다. docstring과 코드가 처음부터 일치하므로 **기각**합니다 |
+
+### 3. 부작용
+
+위 M-8·M-17 오판 때문에 이미 해결된 항목을 "미해결"로 보고 사용자에게 통보했고, M-23·M-21 집계도
+잘못 알렸습니다. 문서 수정만으로 실제 결함이 고쳐지는 것은 아니므로, **판정은 항상 함수의 전체
+본문**을 읽은 뒤에 내립니다. 패턴 grep은 **존재 부부의 증거**이지 부재의 증거가 아닙니다.
+
+---
+
+## Round 6: 권장 수정 및 정책 결정
+
+| 항목 | 적용 내용 | 판정 |
+|---|---|---|
+| R-3 | 전체 신호 zero-padding FFT를 `scipy.signal.oaconvolve`로 교체. 3분·48 kHz 모노 기준 0.778초 → 0.200초, 직접 convolution과 회귀 테스트 추가 | 해결 |
+| M-8 | SONICS의 표준편차가 1e-6 이하이거나 비정상이면 해당 구간을 무음으로 전달해 상수 신호의 100만 배 증폭 차단 | 해결 |
+| M-17 | `favorites.json`과 이력 파일의 최상위 JSON이 객체가 아니면 안전하게 무시 | 해결 |
+| M-11 | 첫 단계와 마지막 단계에 모두 존재하는 지표만 변화량으로 계산 | 해결 |
+| C-8 잔여 | `--backup` 복사 실패를 삼키지 않고 실제 파일 갱신 전에 중단 | 해결 |
+| M-24 | 빈 오디오의 crest factor를 `None`으로 처리 | 해결 |
+| M-3 | 짧은 음원은 계속 분석하되 `effectiveMinValidSegments`와 `minimumAdjustedForShortAudio`를 결과에 기록 | 정책 확정·해결 |
+| M-9 | lofcz의 `segments`와 segment 통계를 Total 계산에 실제 사용한 동일 scoring window로 통일. 별도 300초 진단 재추론 제거 | 정책 확정·해결 |
+| M-10 | SongYUE2의 `source.wav`와 `source-44k.wav`를 `source_original`·`source_44k`로 각각 보존 | 정책 확정·해결 |
+| M-21 | `-ar`/`-ac`가 네이티브 값(`meta.sample_rate`/`meta.channels`)을 넘기므로 docstring과 일치. 44.1 kHz 입력에서 명시 옵션 유무의 출력 PCM이 동일 | **기각** (문서 불일치 아님) |
+| M-20 | 기본 `127.0.0.1` 실행에서는 유지. 외부 바인딩 지원 전 인증 또는 루트 제한 필요 | 조건부 잔존 |
+| M-23 | — | **잔존** (Round 3 집계 오류 정정) |
+
+검증: 프로젝트 루트와 외부 CWD에서 각각 `124 passed`. `compileall` 및 `git diff --check`
+통과. 실제 MP3 한 곡으로 3개 탐지기 분석과 loudness 출력까지 확인했습니다.
+
+---
+
+## Round 7: `start.bat`/`stop.bat` 포트 처리 (R-4)
+
+사용자 요청으로 **이 두 파일만** 수정했습니다. 다른 소스 파일은 건드리지 않았습니다.
+
+### R-4 [신규 발견 → 해결] 실행 중인 서버가 신생 서버의 포트를 빼앗음
+
+| 항목 | 내용 |
+|---|---|
+| 증상 | 서버 실행 중 `start.bat`을 다시 실행하면 브라우저(SSE)가 `/api/analysis/stream`에서 끊겼다가 새 서버에 붙음. "분석 완료 3/4"가 멈춤 |
+| 오해 | Python 크래시로 보였으나 Application Error ID 1000 기록이 없음. 정작 서버는 살아 있었음 |
+| 실제 원인 | 포트 소지 서버를 못 잡아 **새 인스턴스가 포트 8792를 빼앗음** |
+| 왜 | 1) Windows 소켓은 `SO_REUSEADDR`로 **TIME_WAIT가 있어도 이미 LISTEN 중인 포트에 다른 프로세스가 bind/bind+listen에 성공**합니다. 2) 기존 `stop.bat`은 `netstat -ano`의 PID만 종료했으나 실제 프로세스 트리는 `python.exe`가 아니라 그보다 위쪽 launcher였습니다. 3) 따라서 kill→start 사이에 포트가 안 정리돼 새 인스턴스가 살아남은 인스턴스를 밀어냈습니다 |
+| 수정 | `stop.bat`을 `Win32_Process` 조회로 전환: `python.exe`이면서 명령행에 `probe.app`이 있는 **모든** 프로세스를 종료 후 8792 해제를 최대 10초 대기. `start.bat`은 시작 전 `stop.bat` 호출 |
+
+### 검증 (실환경)
+
+- 기존 방식이 놓치던 유령 서버 3개 정리, 잔여 메모리 2,317 MB 회수.
+- 같은 포트의 무관한 ComfyUI 서버(8190)는 **생존** — 매칭이 `probe.app`으로 한정되어 있음.
+- 서버 실행 중 `start.bat` 재실행 → launcher/server는 **신규 2개만** 남고 기존 인스턴스 0개.
+- `/health` OK, 탐지자 4개 active, `/api/analysis/status` idle.
+- 전체 테스트 `127 passed`. `node --check web/app.js` 통과.
+
+> 이 교훈은 Windows 개발 서버 전반에 재사용 가능하므로
+> `memory-bank/knowledge/trouble-shooting.md`와 글로벌 `C:\Claude\memory-bank`에 기록했습니다.

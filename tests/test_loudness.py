@@ -185,3 +185,20 @@ def test_crest_factor_matches_definition():
     assert crest_factor_db(_audio(sine)) == pytest.approx(3.01, abs=0.1)
     square = np.sign(_sine(amplitude, 4.0, hz=100.0)) * amplitude
     assert crest_factor_db(_audio(square)) == pytest.approx(0.0, abs=0.5)
+
+
+def test_crest_factor_accepts_empty_audio():
+    assert crest_factor_db(_audio(np.asarray([], dtype=np.float32))) is None
+
+
+def test_overlap_add_convolution_matches_direct_convolution():
+    from probe.loudness import _fft_convolve
+
+    rng = np.random.default_rng(7)
+    signal = rng.standard_normal(20_000)
+    kernel = rng.standard_normal(257)
+
+    expected = np.convolve(signal, kernel, mode="full")[: signal.size]
+    actual = _fft_convolve(signal, kernel)
+
+    assert actual == pytest.approx(expected, rel=1e-11, abs=1e-11)

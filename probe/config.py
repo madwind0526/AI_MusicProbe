@@ -87,6 +87,8 @@ AUDIO_EXTENSIONS = (".wav", ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".
 
 # Canonical stage order. Anything not listed sorts after these, alphabetically.
 STAGE_ORDER = (
+    "source_original",
+    "source_44k",
     "source",
     "master",
     "postprocess",

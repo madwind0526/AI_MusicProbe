@@ -33,12 +33,44 @@ def _item_key(item: dict) -> str:
     return "|".join((str(item.get("file", "")).casefold(), str(item.get("totalScore")), str(item.get("status", ""))))
 
 
+def _sort_timestamp(value: object, fallback_mtime: float | None = None) -> datetime:
+    """Normalise a report timestamp into an aware datetime for ordering.
+
+    ISO-8601 text does not sort chronologically when UTC offsets differ, and
+    mtime fallbacks are floats, so both forms are converted before comparing.
+    Unparseable or absent values sort last, matching the empty-string behaviour.
+    """
+    epoch_floor = datetime.min.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            return epoch_floor
+    if value:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except ValueError:
+            pass
+        else:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+    if fallback_mtime is None:
+        return epoch_floor
+    try:
+        return datetime.fromtimestamp(fallback_mtime, tz=timezone.utc)
+    except (OSError, OverflowError, ValueError):
+        return epoch_floor
+
+
 def _load_favorites() -> set[str]:
     path = _favorites_path()
     if not path.is_file():
         return set()
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return set()
         return {str(value) for value in payload.get("items", [])}
     except (OSError, json.JSONDecodeError):
         return set()
@@ -66,6 +98,8 @@ def _saved_name_counts() -> dict[str, int]:
         try:
             payload = json.loads(source.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
             continue
         for result in payload.get("results", []):
             if not isinstance(result, dict):
@@ -128,7 +162,13 @@ def trim_history(limit: int) -> None:
                 payload = json.loads(source.read_text(encoding="utf-8"))
                 if not isinstance(payload, dict):
                     continue
-                generated_at = str(payload.get("generatedAt") or source.stat().st_mtime)
+                raw_stamp = payload.get("generatedAt")
+                if raw_stamp:
+                    generated_at = _sort_timestamp(raw_stamp)
+                else:
+                    # stat() is only touched when the timestamp is absent, so a
+                    # locked or already-removed file cannot drop a valid report.
+                    generated_at = _sort_timestamp(None, fallback_mtime=source.stat().st_mtime)
                 reports.append((generated_at, source, payload))
             except (OSError, json.JSONDecodeError):
                 continue
@@ -213,14 +253,14 @@ def load_history() -> list[dict]:
 
     favorites = _load_favorites()
     legacy_counts: dict[str, int] = {}
-    for item in sorted(items, key=lambda entry: str(entry.get("generatedAt", ""))):
+    for item in sorted(items, key=lambda entry: _sort_timestamp(entry.get("generatedAt"))):
         original = str(item.get("sourceName") or item.get("name") or "")
         key = original.casefold()
         index = legacy_counts.get(key, 0)
         if "sourceName" not in item and index:
             item["name"] = _name_with_index(original, index)
         legacy_counts[key] = index + 1
-    ordered = sorted(items, key=lambda item: str(item.get("generatedAt", "")), reverse=True)
+    ordered = sorted(items, key=lambda item: _sort_timestamp(item.get("generatedAt")), reverse=True)
     for item in ordered:
         item["favorite"] = _item_key(item) in favorites
     limit = load_settings()["historyLimit"]
@@ -228,7 +268,11 @@ def load_history() -> list[dict]:
         return ordered
     favorite_items = [item for item in ordered if item["favorite"]]
     regular_items = [item for item in ordered if not item["favorite"]][:limit]
-    return sorted(favorite_items + regular_items, key=lambda item: str(item.get("generatedAt", "")), reverse=True)
+    return sorted(
+        favorite_items + regular_items,
+        key=lambda item: _sort_timestamp(item.get("generatedAt")),
+        reverse=True,
+    )
 
 
 def set_favorite(item_id: str, favorite: bool) -> bool:

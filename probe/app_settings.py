@@ -28,6 +28,33 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 
+def _as_int(value: Any, fallback: int) -> int:
+    """Coerce a persisted setting to int, keeping `fallback` for unusable values.
+
+    A single malformed field must not discard the rest of the user's settings.
+    """
+    if isinstance(value, bool):
+        return fallback
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _as_bool(value: Any, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        token = value.strip().casefold()
+        if token in {"true", "1", "yes", "on"}:
+            return True
+        if token in {"false", "0", "no", "off"}:
+            return False
+    return fallback
+
+
 def _merged(data: dict[str, Any] | None) -> dict[str, Any]:
     result = deepcopy(DEFAULT_SETTINGS)
     if not isinstance(data, dict):
@@ -37,25 +64,31 @@ def _merged(data: dict[str, Any] | None) -> dict[str, Any]:
         thresholds = score_bands.get("thresholds")
         colors = score_bands.get("colors")
         if isinstance(thresholds, list) and len(thresholds) == 4:
-            values = [int(value) for value in thresholds]
-            if 0 < values[0] < values[1] < values[2] < values[3] < 100:
+            try:
+                values = [int(value) for value in thresholds]
+            except (TypeError, ValueError):
+                values = []
+            if len(values) == 4 and 0 < values[0] < values[1] < values[2] < values[3] < 100:
                 result["scoreBands"]["thresholds"] = values
         if isinstance(colors, list) and len(colors) == 5:
             result["scoreBands"]["colors"] = [str(value) for value in colors]
-    limit = int(data.get("historyLimit", result["historyLimit"]))
+    limit = _as_int(data.get("historyLimit"), result["historyLimit"])
     result["historyLimit"] = max(0, min(100000, limit))
-    result["recursiveFolders"] = bool(data.get("recursiveFolders", result["recursiveFolders"]))
-    card_size = int(data.get("historyCardSize", result["historyCardSize"]))
+    result["recursiveFolders"] = _as_bool(data.get("recursiveFolders"), result["recursiveFolders"])
+    card_size = _as_int(data.get("historyCardSize"), result["historyCardSize"])
     result["historyCardSize"] = max(200, min(360, card_size))
-    result["variableHistoryCards"] = bool(data.get("variableHistoryCards", result["variableHistoryCards"]))
-    peaks = int(data.get("waveformPeaks", result["waveformPeaks"]))
+    result["variableHistoryCards"] = _as_bool(data.get("variableHistoryCards"), result["variableHistoryCards"])
+    peaks = _as_int(data.get("waveformPeaks"), result["waveformPeaks"])
     result["waveformPeaks"] = peaks if peaks in {120, 180, 300} else 180
     paths = data.get("paths")
     if isinstance(paths, dict):
         for key in ("music", "reports", "models"):
             raw = paths.get(key)
-            if raw:
-                result["paths"][key] = str(Path(str(raw)).expanduser().resolve())
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    result["paths"][key] = str(Path(raw).expanduser().resolve())
+                except (OSError, RuntimeError, ValueError):
+                    continue
     return result
 
 

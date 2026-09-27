@@ -11,10 +11,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from . import __version__
 from .audioio import AudioToolError
+from .config import REPORTS_DIR
 from .detectors import describe as describe_detectors
 from .report import analyze, save, to_json, with_chain_flags
 from .stages import StageError, load as load_stage_set
@@ -33,14 +33,20 @@ def _print_health(_args: argparse.Namespace | None = None) -> int:
     import shutil as _shutil
 
     print(f"ai-music-probe {__version__}")
-    print(f"  ffmpeg : {'ok' if _shutil.which('ffmpeg') else 'MISSING'}")
-    print(f"  ffprobe: {'ok' if _shutil.which('ffprobe') else 'MISSING'}")
+    missing_tools = [tool for tool in ("ffmpeg", "ffprobe") if _shutil.which(tool) is None]
+    print(f"  ffmpeg : {'ok' if 'ffmpeg' not in missing_tools else 'MISSING'}")
+    print(f"  ffprobe: {'ok' if 'ffprobe' not in missing_tools else 'MISSING'}")
     print("  탐지기:")
     for detector in describe_detectors():
         mark = "ok " if detector["available"] else "-- "
         print(f"    [{mark}] {detector['label']}  ({detector['license']})")
         if not detector["available"]:
             print(f"           {detector['reason']}")
+    if missing_tools:
+        # Unavailable detectors are a valid configuration, so they are reported
+        # but do not fail the check; a missing decoder breaks every analysis.
+        print(f"\n필수 도구 없음: {', '.join(missing_tools)}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -118,7 +124,7 @@ def _cmd_score(args: argparse.Namespace) -> int:
     if args.save:
         stamp = report["generatedAt"].replace(":", "").replace("-", "")
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in target.name)[:60] or "report"
-        out = Path("reports") / f"{stamp}-{safe}.json"
+        out = REPORTS_DIR / f"{stamp}-{safe}.json"
         print(f"저장됨: {save(report, out)}")
     return 0
 

@@ -31,10 +31,14 @@ AGGREGATION_LABELS = {
 # The released graph is not level-invariant. On near-full-scale material it
 # returns NaN (a hot 44.1 kHz master lost 4 of 7 segments), and its raw output
 # otherwise tracks absolute level rather than timbre: white noise at RMS 1e-1
-# scores 0.98 while the same noise at 1e-4 scores 0.02. Each segment is
-# therefore level-normalised before inference so the detector cannot reward or
-# crash on mastering level. Measured across the four comparison tracks, RMS
-# normalisation is the only variant that yields zero NaN segments.
+# scores 0.98 while the same noise at 1e-4 scores 0.02. RMS normalisation is the
+# only variant measured across the four comparison tracks that yields zero NaN
+# segments.
+#
+# It is applied only when the levelNormalize option is enabled, which defaults
+# to False. With the default, hot masters can still produce NaN segments and the
+# score can track mastering level, so enabling it is recommended; flipping the
+# default would change every score produced so far and is a deliberate decision.
 MODEL_RMS_TARGET = 0.1
 MODEL_PEAK_CEILING = 0.99
 
@@ -134,6 +138,7 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
 
     values = np.asarray([item["score"] for item in segments if item["score"] is not None], dtype=float)
     required = min(min_valid, len(segments))
+    minimum_adjusted = required < min_valid
     if values.size < required:
         raise ValueError(f"ArtifactNet 유효 구간이 부족합니다: {values.size}/{len(segments)}")
     aggregate = _aggregate(values, aggregation)
@@ -159,6 +164,8 @@ def analyze_audio(audio: Audio, model_path: Path) -> dict:
         "optionLabels": option_labels("artifactnet"),
         "validSegmentCount": int(values.size),
         "segmentCount": len(segments),
+        "effectiveMinValidSegments": required,
+        "minimumAdjustedForShortAudio": minimum_adjusted,
         "coverage": round(float(values.size / len(segments)), 4),
         "segments": segments,
         "modelVersion": "intrect/artifactnet-v9.4-full@e915f0dc",

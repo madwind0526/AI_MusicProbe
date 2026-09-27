@@ -35,6 +35,70 @@ def test_score_requires_detector_corroboration() -> None:
     assert detail["inputs"] == {"sonics": 0.81, "lofcz": 0.0}
 
 
+def test_agreement_uses_the_sample_standard_deviation() -> None:
+    # Population std divided by n, so two fully disagreeing detectors still
+    # scored 0.20 agreement. The sample std makes the spread of n scores
+    # comparable across different detector counts.
+    _total, confidence, _conclusion, detail = _score(
+        [
+            {"name": "sonics", "score": 0.9},
+            {"name": "lofcz", "score": 0.1},
+        ],
+        {"method": "mean", "weights": {}},
+    )
+
+    assert detail["agreement"] == 0.0
+    assert confidence == 0.0
+
+
+def test_agreement_does_not_reward_agreeing_fewer_detectors() -> None:
+    # The same disagreement should not look better just because only two
+    # detectors reported, which is what dividing by n used to do.
+    two, two_conf, _c, two_detail = _score(
+        [
+            {"name": "sonics", "score": 0.9},
+            {"name": "lofcz", "score": 0.1},
+        ],
+        {"method": "mean", "weights": {}},
+    )
+    three, three_conf, _c2, three_detail = _score(
+        [
+            {"name": "sonics", "score": 0.9},
+            {"name": "lofcz", "score": 0.1},
+            {"name": "artifactnet", "score": 0.5},
+        ],
+        {"method": "mean", "weights": {}},
+    )
+
+    assert two is not None and three is not None
+    assert two_detail["agreement"] <= three_detail["agreement"]
+    assert two_conf <= three_conf
+
+
+def test_agreement_stays_finite_for_degenerate_inputs() -> None:
+    _t, confidence, _c, detail = _score(
+        [
+            {"name": "sonics", "score": 0.9},
+            {"name": "lofcz", "score": 0.9},
+        ],
+        {"method": "robustMean", "weights": {}},
+    )
+
+    assert math.isfinite(detail["agreement"])
+    assert math.isfinite(confidence)
+    assert detail["agreement"] == 1.0
+
+
+def test_single_detector_keeps_full_agreement() -> None:
+    _t, confidence, _c, detail = _score(
+        [{"name": "sonics", "score": 0.9}],
+        {"method": "mean", "weights": {}},
+    )
+
+    assert detail["agreement"] == 1.0
+    assert confidence == 80.0
+
+
 def test_score_stays_high_when_detectors_agree() -> None:
     total, confidence, _conclusion, _detail = _score(
         [

@@ -262,3 +262,33 @@ SONICS 구간 집계 선택지에는 `중앙값 (기본)` 표시를 추가했고
 앱 시작 시 저장된 이력·리포트에서 참조하는 업로드 음원과 현재 파형·스펙트로그램 캐시 목록을 계산하고, 그 밖의 `scratch/uploads` 및 `scratch/visuals` 파일을 정리한다. 분석 저장과 이력·리포트 삭제 후에도 같은 정리를 수행하며, 새 업로드를 받기 전에는 1시간 유예를 두고 중단된 요청의 임시 파일을 정리한다. 참조 중인 업로드 원본은 상세 보기 재생을 위해 유지한다. 전체 테스트는 89개가 통과했다.
 
 BS.1770 구현이 단위 테스트에서만 호출되고 실제 `dsp.analyze()` 결과에는 연결되지 않았던 결함을 수정했다. `levels`는 이제 `integratedLufs`, `lra`, `loudnessRangePeak`, `samplePeakDbfs`, `truePeakDbtp`, `crestDb`를 포함한다. UI는 새 키를 사용하며 기존 리포트의 `lufsIntegrated`·`truePeakDbfs`도 fallback으로 읽는다. 실제 저장 음원에서 LUFS-I -12.97, True Peak 0.31 dBTP, Crest 15.6 dB, LRA 17.37을 확인했다.
+
+## 13. 코드 리뷰 결함 수정 — 중간·높은 중요도 (2026-09-27)
+
+전체 리뷰는 `codereview.md`에 있고, 이 절은 실행 결과만 기록한다. 기준선 `70a0829` 대비 **35개 파일 수정, 테스트 127개 통과**했다.
+
+| 등급 | 전체 | 해결 | 잔존 | 기각 |
+|---|---|---|---|---|
+| 높음 | 15 | 15 | 0 | 0 |
+| 중간 | 24 | 21 | 2 (M-20, M-23) | 1 (M-21) |
+| 낮음/정적 | 64 | 0 | 64 | 0 |
+
+리뷰 중 내 코드에서 나온 회귀와 성능 저하도 함께 고쳤다.
+
+- **R-1** — 이력의 `source.stat()`을 try/except 밖으로 옮기는 과정에서 고른 회귀. 타임스탬프가 이미 있으면 stat을 건드리지 않는 lazy 분기로 되돌리고 회귀 테스트 2개를 추가했다.
+- **R-3** — BS.1770 배선을whole-length zero-padding FFT로 하던 것이 3분 48 kHz 모노 기준 **7.4배 느려짐**을 발견. `scipy.signal.oaconvolve` overlap-add로 교체해 0.778초 → 0.200초로 줄였다.
+- **M-8** — SONICS의 `max(std, 1e-6)`이 퇴화 구간을 최대 100만 배 증폭해 상수 신호가 amplitude 1000으로 학습 모델에 들어갔다. 1e-6 이하·비정상 표준편차는 0으로 치환한다.
+- **M-17** — 이력 JSON 최상위가 dict가 아니면 `AttributeError`가 예외 절을 통과해 `/api/history`가 500이 되던 것을 5곳 가드로 막았다.
+- **M-3** — 짧은 음원이 `minValidSegments`를 충족하지 못해도 조용히 통과하던 것을, 점수 정책은 유지한 채 `effectiveMinValidSegments`·`minimumAdjustedForShortAudio`·`coverage`를 결과에 기록해 근거의 약함을 드러낸다.
+- **M-9·M-10** — lofcz 진단 구간과 점수 구간 불일치, SongYUE2 `source.wav`/`source-44k.wav`가 같은 키로 덮어써지던 문제를 각각 수정.
+- **M-11·M-24** — 중간에 결측값이 있는 단계의 변화량을 잘못 계산하던 문제와 빈 오디오의 crest factor 예외를 수정.
+
+### 재시작 시 포트 탈취 (R-4)
+
+서버를 실행한 채 `start.bat`을 다시 실행하면 브라우저 SSE가 끊기며 화면이 "3/4"에서 멈췄다. 서버는 살아 있었고 크래시 기록도 없었다. **새 인스턴스가 살아남은 인스턴스의 8792 포트를 빼앗은 것**이었다. Windows의 `SO_REUSEADDR`가 이미 LISTEN 중인 포트에 bind를 허용하고, 기존 `stop.bat`이 자식 `python.exe`가 아닌 상위 launcher를 죽여 포트가 정리되기 전에 재시작되었기 때문이다.
+
+`stop.bat`을 `Win32_Process` 기반으로 바꿔 `probe.app`이 들어간 `python.exe`을 전부 종료하고 10초까지 포트 해제를 기다리게 했고, `start.bat`은 시작 전에 `stop.bat`을 호출한다. 유령 서버 3개(2,317 MB)를 회수했고 같은 포트를 쓰는 무관한 ComfyUI 서버(8190)는 생존했다.
+
+### 리뷰 기록 정정
+
+M-8과 M-17을 패턴 grep만 보고 이미 해결된 상태를 "미해결"로 잘못 보고했다. M-23은 해결로 잘못 집계했고 M-21은 문서 불일치가 아니라 처음부터 오독이었던 것으로 확인되어 **기각**했다. 중간 잔존은 2건(M-20 설계, M-23 `nan_to_num` 무음 치환)이며 모두 `codereview.md`에 근거와 함께 남아 있다.

@@ -18,7 +18,7 @@
       <button class="nav-item" data-page="reports"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg><span>리포트</span></button>
       <div class="sidebar-subhead"><span>최근 작업 이력</span><button type="button" id="recent-refresh" title="최근 이력 새로고침" aria-label="최근 이력 새로고침"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button></div>
       <div class="recent-list" id="recent-list"></div>
-      <section class="sidebar-analysis-progress" id="sidebar-analysis-progress" aria-live="polite" hidden><div><span id="sidebar-analysis-progress-label">작업 대기 중…</span><strong id="sidebar-analysis-progress-count">0/0</strong></div><div class="sidebar-analysis-progress-track" role="progressbar" aria-label="전체 음원 분석 작업 현황" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" id="sidebar-analysis-progress-track"><i id="sidebar-analysis-progress-bar"></i></div><small id="sidebar-analysis-progress-name">분석을 준비하고 있습니다.</small></section>
+      <section class="sidebar-analysis-progress" id="sidebar-analysis-progress" aria-live="polite"><div><span id="sidebar-analysis-progress-label">작업 대기 중…</span><strong id="sidebar-analysis-progress-count">0/0</strong></div><div class="sidebar-analysis-progress-track" role="progressbar" aria-label="전체 음원 분석 작업 현황" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" id="sidebar-analysis-progress-track"><i id="sidebar-analysis-progress-bar"></i></div><small id="sidebar-analysis-progress-name">분석 요청을 기다리고 있습니다.</small></section>
     </nav>
     <button type="button" class="nav-item sidebar-compare" id="audio-compare-open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M8 21H3v-5M21 3l-7 7M3 21l7-7M14 14l7 7M3 3l7 7"/></svg><span>음원 비교</span></button>
     <nav class="sidebar-bottom" aria-label="관리 메뉴">
@@ -168,5 +168,4 @@
 <script src="/app.js"></script>
 </body>
 </html>
-
 

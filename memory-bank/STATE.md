@@ -2,10 +2,10 @@
 
 ## Current Wave
 
-- **Wave:** 33
-- **Status:** Done — BS.1770 loudness 프로덕션 배선과 UI 키 통일
+- **Wave:** 36
+- **Status:** Done — 코드 리뷰 Round 7 (`start.bat`/`stop.bat` 포트 처리), 중간 finding 최종 집계 정정, 문서 4종 동기화
 - **Cache Status:** CLEAN
-- **Last Checkpoint:** 2026-09-27 — 실제 음원 levels 확인, 90 tests passed, compileall·JS 문법 검사 통과
+- **Last Checkpoint:** 2026-09-27 — start/stop.bat 수정, 유령 서버 3개 정리 실환경 검증, 127 tests passed
 
 ## Wave History
 
@@ -44,6 +44,9 @@
 | 31 | 코드 리뷰: 경로 보안·측정 정확도·원자 저장·설정/업로드/프론트 경합 수정 | Done |
 | 32 | 앱 시작과 저장/삭제 후 참조되지 않는 scratch 업로드·비주얼 캐시 정리 | Done |
 | 33 | BS.1770 loudness 계산을 실제 DSP/API/UI에 연결 | Done |
+| 34 | 리뷰 잔여 수정: overlap-add, 탐지기 퇴화 입력, 이력·리포트·백업 안전성, 구간 정책 | Done |
+| 35 | E0002 4종 full flow 재분석, API 공용 진행률, spectrogram 원자 캐시·단일 fetch | Done |
+| 36 | `start.bat`/`stop.bat` 포트 처리(R-4), 리뷰 중간 finding 최종 집계 정정, README·progress·revision 동기화 | Done |
 
 ## Session Notes
 
@@ -63,3 +66,7 @@
 - 음원 비교는 AI Music Probe 내부 모듈이며 SongYUE2 실행 파일이나 소스 경로를 런타임에 참조하지 않는다.
 - ensemble method 기본값은 `robustMean`(이상치 제외 평균). n=3에서 median이 항상 가운데 값이라, 셋이 서로 고르게 떨어져 있으면(예: 0.0/20.8/99.8) MAD 컷오프(3.5)를 아무도 못 넘어 전원 평균으로 떨어질 수 있다 — 버그 아님, 사용자 확인 후 임계값 유지로 결정.
 - anchor 코퍼스(90곡)를 재계산할 땐 `scratch/evaluate_anchor_corpus.py`의 통계 함수를 재사용하되 `analyze_batch`(HTTP `save:true`) 대신 `probe.file_analysis.analyze_files`를 직접 호출한다 — 그래야 실 분석 이력(`historyLimit` 트림)을 건드리지 않는다.
+- **서버는 항상 `stop.bat` → `start.bat` 순서로 교체한다.** Windows `SO_REUSEADDR` 때문에 이미 LISTEN 중인 포트에도 bind가 성공하므로, 수동 `taskkill` 후 즉시 재시작하면 새 인스턴스가 살아남은 인스턴스를 밀어낸다(브라우저 SSE가 "3/4"에서 조용히 멈춤, 서버 크래시 아님).
+- `stop.bat`은 `python.exe` + 명령행 `probe.app` 패턴으로만 종료하므로 다른 프로젝트의 서버는 건드리지 않는다.
+- 코드 리뷰 최종 집계(2026-09-27): 높음 15/15 해결, 중간 21 해결 + 2 잔존(M-20 설계, M-23 `nan_to_num` 무음 치환) + 1 기각(M-21 오독), 낮음 64 미착수. 리뷰 중 생긴 자기 회귀 R-1(수정), R-2(이상 없음), R-3(성능, 수정), R-4(포트, 수정).
+- 리뷰 판정은 **항상 함수 본문을 읽고** 한다. 패턴 grep은 존재 부부의 증거일 뿐 부재의 증거가 아니며, 이 문서에도 세 번 반복된 오판으로 기록돼 있다.

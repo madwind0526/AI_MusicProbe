@@ -323,3 +323,51 @@ When a fixed endpoint such as `/api/audio/peaks` is declared after `/api/audio/{
 - `integrated_loudness()`는 BS.1770 절대 기준 테스트를 통과했지만 `dsp.analyze()`에서 호출되지 않아 실제 API에는 LUFS가 없었다.
 - 계산 모듈 테스트와 별도로 최종 조립 함수가 응답 계약 키를 포함하는지 검사한다. 이 프로젝트는 `dsp.analyze(audio)["levels"]`에 `integratedLufs`, `truePeakDbtp`, `crestDb`가 실제 값으로 들어오는 테스트를 둔다.
 - 내부 계산 이름(`lufsIntegrated`)과 UI 계약 이름(`integratedLufs`)이 다르면 프로덕션 경계에서 명시적으로 변환하고, UI는 과거 저장 리포트를 위한 fallback을 유지한다.
+## Long FIR filtering should use overlap-add for full tracks
+
+Padding an entire multi-minute signal to the next power of two for every FIR pass caused the
+BS.1770 level profile to dominate analysis time and memory. `scipy.signal.oaconvolve` preserves
+the causal `full[:signal.size]` result within floating-point tolerance while processing bounded
+blocks. A 3-minute 48 kHz mono convolution measured 0.778 s before and 0.200 s after. Always keep
+a direct-convolution equivalence test when changing the block strategy.
+
+## Detector diagnostics must describe the windows used for the score
+
+lofcz previously computed the song score from evenly spaced long windows but reported segment
+statistics from separate 30-second windows limited to the first 300 seconds. This made the detail
+panel explain different evidence than the Total input and repeated expensive inference. Reuse the
+actual scoring windows for `segments`, `segmentMean`, `segmentMin`, and `segmentMax`.
+
+## Standard-deviation normalization needs a degenerate-input guard
+
+Dividing an almost constant waveform by `max(std, 1e-6)` can turn a small DC signal into an
+out-of-distribution model input with amplitude near 1000. Treat non-finite or effectively zero
+standard-deviation windows as silence before inference and cover a constant nonzero signal in tests.
+
+## 시각화 캐시는 완성 파일만 원자적으로 공개해야 한다 (2026-09-27)
+
+- 상세창은 재생 전·후 색상을 나누기 위해 같은 spectrogram을 두 이미지로 사용한다. 두 HTTP 요청이 동시에 cache miss를 만나 FFmpeg가 같은 최종 PNG에 직접 쓰면, 한 응답이 다른 렌더의 부분 파일을 읽어 간헐적으로 이미지가 깨진다.
+- 경로별 잠금 안에서 고유 임시 PNG를 만들고 PNG signature를 검증한 뒤 `replace()`로 최종 경로에 공개한다. 기존 캐시도 signature가 잘못되면 삭제하고 다시 만든다.
+- 프론트엔드는 spectrogram을 한 번만 fetch해 하나의 object URL을 두 이미지에 공유하고, 상세창 전환 시 이전 URL을 폐기한다. 실제 브라우저에서 두 이미지가 같은 `blob:` URL, 1200×300 완전 로드 상태인지 확인한다.
+
+## lofcz 위치·집계 옵션은 음원이 최대 분석 길이보다 짧으면 결과가 같다 (2026-09-27)
+
+- `maxDurationS=300`에서 124.64초 또는 267.28초 음원은 곡 전체가 단일 scoring window가 된다. 이 경우 `analysisPosition=start/even`과 `aggregation=mean/median`을 바꿔도 같은 한 점을 집계하므로 원점수와 Total이 바뀌지 않는다.
+- E0002 4종 재분석에서 `start+mean`을 `even+median`으로 변경했지만 네 파일 모두 Total과 세 탐지기 점수가 정확히 같았다. 옵션 영향을 비교하려면 300초보다 긴 곡을 쓰거나 `maxDurationS`를 60/180초로 낮춰 scoring window가 둘 이상 생기게 해야 한다.
+
+## Windows에서 재시작한 서버가 살아남은 서버의 포트를 빼앗는다 (2026-09-27)
+
+- **증상**: 서버 실행 중 `start.bat`을 다시 실행하면 브라우저 SSE(`/api/analysis/stream`)가 끊겼다가 새 서버에 붙고, 화면은 "분석 완료 3/4"에서 멈춘다. **서버 로그에 오류가 없고 크래시 기록도 없다.** 정작 서버는 정상 실행 중이다.
+- **원인 1 — SO_REUSEADDR**: Windows 소켓은 TIME_WAIT가 남아 있어도 **이미 다른 프로세스가 LISTEN 중인 포트에 bind와 listen이 성공**한다. kill 직후 재시작하면 새 인스턴스가 살아남은 인스턴스의 포트를 가져간다. Linux와 동작이 다르므로 Linux에서 검증한 stop/start 스크립트를 그대로 쓰면 안 된다.
+- **원인 2 — PID를 잘못 잡음**: `netstat -ano`로 포트의 PID를 구해 종료하면 자식 `python.exe`가 아니라 그보다 위쪽 launcher가 죽는다. 부모가 살아남아 kill과 재시작 사이에 포트가 정리되지 않는다.
+- **해결**: `Win32_Process`로 조회해 `python.exe`이면서 명령행에 앱 모듈 문자열(`probe.app`)이 있는 **모든** 프로세스를 종료한 뒤, 포트가 해제될 때까지 최대 10초 대기한다. 시작 스크립트는 종료 스크립트를 먼저 호출한다. 명령행 패턴으로 좁히면 같은 포트를 쓰는 무관 서버는 건드리지 않는다.
+- **검증**: 실행 중 재시작했을 때 신규 launcher/server만 남고 기존 인스턴스가 0개인지, `/health` OK와 탐지자 active, 상태 idle인지 확인한다. 실제 유령 서버 3개(잔여 메모리 2,317 MB)가 남아 있던 것을 발견했다.
+
+## 검증 없이 코드에서 결함을 지목하지 않는다 (2026-09-27)
+
+- **패턴 grep은 존재 부부의 증거이지 부재의 증거가 아니다.** 해결 여부를 grep으로 판정해 세 번 연속으로 오판했다.
+  - `sonics.py`의 `1e-6`은 상수 **선언**이라 남아 있고, 실제 수정은 그 아래 분기의 `np.zeros_like` 치환이었다.
+  - `history.py`의 `payload.get(` 라인은 남아 있지만, 가드는 **별도 라인**의 `isinstance(payload, dict)`이고 5곳에 있었다.
+  - `audioio.py`의 `-ar`/`-ac`는 44100/1 하드코드가 아니라 ffprobe로 읽은 `meta.sample_rate`/`meta.channels`(파일 네이티브 값)였다. 발견 내용이 처음부터 오독이었다.
+- **"고쳤다"고 기록한 항목도 코드로 확인한다.** `nan_to_num` 무음 치환(M-23)을 M-2와 묶어 "자체 수정"으로 집계했지만 실제 반영은 M-2의 `ddof=1`뿐이었다. 문서 수정은 실제 결함을 고치지 않는다.
+- **판정 방법**: 해당 함수의 **전체 본문**을 읽고, 가능하면 venv에서 최소 재현을 돌린 뒤에 해결/잔존을 확정한다. 집계 숫자를 먼저 쓰고 근거를 나중에 채우지 않는다.

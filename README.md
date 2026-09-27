@@ -22,7 +22,32 @@ python -m venv .venv
 
 브라우저에서 `http://127.0.0.1:8792`를 엽니다. OpenAPI 문서는 `http://127.0.0.1:8792/api/docs`에 있습니다.
 
-서버를 멈추려면 해당 포트(8792)의 프로세스를 종료하면 됩니다.
+### 시작과 종료
+
+| 명령 | 동작 |
+|------|------|
+| `.\start.bat` | **기존 서버를 먼저 정리한 뒤** 새 서버를 시작합니다 |
+| `.\stop.bat` | 실행 중인 서버를 종료하고 포트 8792가 정리될 때까지 최대 10초 대기 |
+
+`start.bat`은 시작 전에 `stop.bat`을 호출하므로, 실행 중인 서버가 있어도 그대로 다시 실행하면
+**이전 인스턴스만 정확히 교체**되고 탐색 중인 브라우저 연결이 끊기지 않습니다.
+
+> `stop.bat`은 `python.exe`이면서 명령행에 `probe.app`이 있는 프로세스를 **전부** 종료합니다.
+> 8792를 쓰지 않는 무관한 Python 프로세스에는 손대지 않습니다.
+
+포트를 직접 확인하려면 다음을 사용합니다.
+
+```powershell
+.\.venv\Scripts\python.exe -m probe.cli health
+```
+
+> **주의 — 수동으로 포트를 정리하려 하지 마십시오.**
+> Windows 소켓은 `SO_REUSEADDR` 때문에 TIME_WAIT가 남아 있어도 **이미 다른 프로세스가
+> LISTEN 중인 포트에 bind/bind+listen이 성공**합니다. 즉 `taskkill`로 프로세스를 먼저 죽여도
+> kill과 재시작 사이에 포트가 정리되지 않으면 **새 서버가 살아남은 서버의 포트를 빼앗습니다.**
+> 그 결과 브라우저의 SSE(`/api/analysis/stream`)가 조용히 끊기고, 화면은 "3/4"에서 멈춘 채
+> 서버 로그에는 아무 오류가 없습니다. 항상 `stop.bat`으로 정리한 뒤 시작하십시오.
+> 자세한 내용은 `codereview.md`의 R-4와 `memory-bank/knowledge/trouble-shooting.md`를 보십시오.
 
 ## 탐지기 설치
 

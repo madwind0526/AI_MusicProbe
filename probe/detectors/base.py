@@ -41,13 +41,15 @@ class Detector:
         return self.run is not None and self.weight_path.is_file() and all(path.is_file() for path in self.required_paths)
 
     def unavailable_reason(self) -> str:
-        if self.run is None:
-            return "런타임이 아직 연결되지 않았습니다."
+        # Report missing files first: those are actionable for the user, whereas
+        # an unconnected runtime is a development-time state that hides them.
         if not self.weight_path.is_file():
             return f"가중치 없음: {self.weight_path}"
         missing = next((path for path in self.required_paths if not path.is_file()), None)
         if missing is not None:
-            return f"가중치 없음: {missing}"
+            return f"필수 파일 없음: {missing}"
+        if self.run is None:
+            return "런타임이 아직 연결되지 않았습니다."
         return ""
 
     @property
