@@ -15,4 +15,5 @@ rem stop.bat also reaps the port-less orphans, so call it instead of duplicating
 call "%~dp0stop.bat"
 
 echo Starting AI Music Probe: http://127.0.0.1:8792
+start "" /min C:\Claude\open-url.bat http://127.0.0.1:8792
 ".venv\Scripts\python.exe" -m probe.app
